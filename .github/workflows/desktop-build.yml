@@ -1,0 +1,73 @@
+name: Desktop Build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_glob: _build_windows/prod/*.exe
+          - os: macos-latest
+            artifact_glob: _build/prod/*.dmg
+    runs-on: ${{ matrix.os }}
+    env:
+      MIX_ENV: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.3.4"
+          elixir-version: "1.20.3"
+
+      # Sets up cl.exe/link.exe/nmake on PATH for the rest of this job —
+      # needed to compile exqlite's SQLite NIF (Makefile.win).
+      - name: Set up MSVC dev environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # exqlite's Makefile.win computes this itself via `erl -eval ...`, but
+      # that invocation breaks under nmake's argument quoting on Windows.
+      # Pre-setting the env var makes it skip straight to compiling.
+      - name: Compute ERTS_INCLUDE_PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          root_dir=$(erl -noshell -eval 'io:format("~ts", [code:root_dir()]), halt().')
+          vsn=$(erl -noshell -eval 'io:format("~ts", [erlang:system_info(version)]), halt().')
+          echo "ERTS_INCLUDE_PATH=$root_dir/erts-$vsn/include" >> "$GITHUB_ENV"
+
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y --no-progress
+
+      - name: Install ImageMagick (Windows)
+        if: runner.os == 'Windows'
+        run: choco install imagemagick -y --no-progress --params "/InstallLegacyUtilities"
+
+      - name: Install ImageMagick (macOS)
+        if: runner.os == 'macOS'
+        run: brew install imagemagick
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Compile
+        run: mix compile
+
+      - name: Build assets
+        run: mix assets.deploy
+
+      - name: Build release + installer
+        run: mix release --overwrite
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toodle-${{ runner.os }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
