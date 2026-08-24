@@ -81,3 +81,28 @@ jobs:
           name: toodle-${{ runner.os }}
           path: ${{ matrix.artifact_glob }}
           if-no-files-found: error
+
+  release:
+    needs: build
+    # Only pushes to main touch the public release — workflow_dispatch runs
+    # (used for testing from other branches) still build and upload CI
+    # artifacts above, but shouldn't overwrite it.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # No version tagging yet, so this republishes a single rolling
+      # "latest" release on every push to main rather than piling up
+      # one release per build.
+      - name: Publish latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          prerelease: true
+          files: artifacts/**/*
