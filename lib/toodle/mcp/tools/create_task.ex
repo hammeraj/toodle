@@ -18,7 +18,15 @@ defmodule Toodle.MCP.Tools.CreateTask do
 
   @impl true
   def execute(params, frame) do
-    attrs = Map.take(params, [:project_id, :title, :description, :estimate_hours, :start_date, :due_date])
+    attrs =
+      Map.take(params, [
+        :project_id,
+        :title,
+        :description,
+        :estimate_hours,
+        :start_date,
+        :due_date
+      ])
 
     case Tasks.create_task(attrs) do
       {:ok, task} ->

@@ -21,7 +21,13 @@ defmodule Toodle.MCP.Tools.CreateProject do
 
     case Projects.create_project(attrs) do
       {:ok, project} ->
-        summary = %{id: project.id, name: project.name, description: project.description, color: project.color}
+        summary = %{
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          color: project.color
+        }
+
         {:reply, Response.tool() |> Response.json(summary), frame}
 
       {:error, changeset} ->

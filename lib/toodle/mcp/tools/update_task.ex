@@ -29,6 +29,7 @@ defmodule Toodle.MCP.Tools.UpdateTask do
         {:reply, Response.tool() |> Response.error(Support.changeset_errors(changeset)), frame}
     end
   rescue
-    Ecto.NoResultsError -> {:reply, Response.tool() |> Response.error("No task with that id"), frame}
+    Ecto.NoResultsError ->
+      {:reply, Response.tool() |> Response.error("No task with that id"), frame}
   end
 end

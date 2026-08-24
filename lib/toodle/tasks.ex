@@ -90,7 +90,9 @@ defmodule Toodle.Tasks do
         {:ok, task}
 
       {:error, %Ecto.Changeset{errors: errors} = changeset} ->
-        if Keyword.has_key?(errors, :slack_message_ts), do: {:ok, :duplicate}, else: {:error, changeset}
+        if Keyword.has_key?(errors, :slack_message_ts),
+          do: {:ok, :duplicate},
+          else: {:error, changeset}
     end
   end
 
@@ -162,7 +164,8 @@ defmodule Toodle.Tasks do
 
   defp validate_no_grandchildren(changeset) do
     with id when not is_nil(id) <- changeset.data.id,
-         parent_id when not is_nil(parent_id) <- Ecto.Changeset.get_change(changeset, :parent_task_id),
+         parent_id when not is_nil(parent_id) <-
+           Ecto.Changeset.get_change(changeset, :parent_task_id),
          true <- Repo.exists?(from t in Task, where: t.parent_task_id == ^id) do
       Ecto.Changeset.add_error(changeset, :parent_task_id, "already has subtasks of its own")
     else
@@ -309,7 +312,9 @@ defmodule Toodle.Tasks do
     end
   end
 
-  defp stop_reason_for(status) when status in [:blocked, :interrupted, :paused, :complete], do: status
+  defp stop_reason_for(status) when status in [:blocked, :interrupted, :paused, :complete],
+    do: status
+
   defp stop_reason_for(_status), do: :manual
 
   @doc """

@@ -26,7 +26,10 @@ defmodule ToodleWeb.Layouts do
 
   """
   attr :flash, :map, required: true, doc: "the map of flash messages"
-  attr :active, :atom, default: nil, doc: "which sidebar nav item to highlight (:board or :projects)"
+
+  attr :active, :atom,
+    default: nil,
+    doc: "which sidebar nav item to highlight (:board or :projects)"
 
   attr :current_scope, :map,
     default: nil,

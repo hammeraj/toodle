@@ -54,7 +54,8 @@ defmodule Toodle.Linear do
   end
 
   @doc "Fetches the latest title/state/assignee from Linear for a task's linked issue."
-  def refresh(%Task{linear_identifier: nil}), do: {:error, "This task isn't linked to a Linear issue"}
+  def refresh(%Task{linear_identifier: nil}),
+    do: {:error, "This task isn't linked to a Linear issue"}
 
   def refresh(%Task{} = task) do
     with {:key, key} when is_binary(key) and key != "" <- {:key, api_key()},

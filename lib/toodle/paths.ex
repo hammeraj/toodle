@@ -9,9 +9,14 @@ defmodule Toodle.Paths do
   def data_dir do
     dir =
       case :os.type() do
-        {:unix, :darwin} -> Path.join([System.user_home!(), "Library", "Application Support", "Toodle"])
-        {:win32, _} -> Path.join(windows_app_data(), "Toodle")
-        _ -> Path.join([System.user_home!(), ".config", "toodle"])
+        {:unix, :darwin} ->
+          Path.join([System.user_home!(), "Library", "Application Support", "Toodle"])
+
+        {:win32, _} ->
+          Path.join(windows_app_data(), "Toodle")
+
+        _ ->
+          Path.join([System.user_home!(), ".config", "toodle"])
       end
 
     File.mkdir_p!(dir)

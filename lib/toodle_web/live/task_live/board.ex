@@ -30,7 +30,9 @@ defmodule ToodleWeb.TaskLive.Board do
     <Layouts.app flash={@flash} active={:board}>
       <.header>
         Board
-        <:subtitle>Blocking or interrupting a task needs a cause — do that from the task's detail page.</:subtitle>
+        <:subtitle>
+          Blocking or interrupting a task needs a cause — do that from the task's detail page.
+        </:subtitle>
         <:actions>
           <div class="flex flex-wrap items-center gap-2">
             <.button variant="primary" navigate={~p"/tasks/new"}>
@@ -61,7 +63,10 @@ defmodule ToodleWeb.TaskLive.Board do
         </:actions>
       </.header>
 
-      <div :if={@tasks == []} class="rounded-2xl border border-dashed border-base-300 py-16 text-center">
+      <div
+        :if={@tasks == []}
+        class="rounded-2xl border border-dashed border-base-300 py-16 text-center"
+      >
         <.icon name="hero-view-columns" class="size-10 mx-auto opacity-30 mb-3" />
         <p class="text-base-content/60">No tasks yet — create one to get started.</p>
       </div>

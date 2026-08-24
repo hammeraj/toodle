@@ -24,7 +24,9 @@ defmodule Toodle.Projects.Project do
     project
     |> cast(attrs, [:name, :description, :color, :archived_at])
     |> validate_required([:name])
-    |> unsafe_validate_unique(:name, Repo, query: from(p in __MODULE__, where: is_nil(p.archived_at)))
+    |> unsafe_validate_unique(:name, Repo,
+      query: from(p in __MODULE__, where: is_nil(p.archived_at))
+    )
     |> unique_constraint(:name, name: :unique_active_project_name)
   end
 end

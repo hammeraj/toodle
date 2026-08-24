@@ -16,7 +16,10 @@ defmodule ToodleWeb.ProjectLive.Index do
         </:actions>
       </.header>
 
-      <div :if={@projects == []} class="rounded-2xl border border-dashed border-base-300 py-16 text-center">
+      <div
+        :if={@projects == []}
+        class="rounded-2xl border border-dashed border-base-300 py-16 text-center"
+      >
         <.icon name="hero-folder" class="size-10 mx-auto opacity-30 mb-3" />
         <p class="text-base-content/60">No projects yet — create one to get started.</p>
       </div>

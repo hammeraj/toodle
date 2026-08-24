@@ -28,6 +28,9 @@ defmodule Toodle.MCP.Tools.InterruptTask do
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
-  defp reply({:ok, summary}, frame), do: {:reply, Response.tool() |> Response.json(summary), frame}
-  defp reply({:error, message}, frame), do: {:reply, Response.tool() |> Response.error(message), frame}
+  defp reply({:ok, summary}, frame),
+    do: {:reply, Response.tool() |> Response.json(summary), frame}
+
+  defp reply({:error, message}, frame),
+    do: {:reply, Response.tool() |> Response.error(message), frame}
 end

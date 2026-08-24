@@ -34,7 +34,9 @@ defmodule Toodle.Slack do
   def reaction_emoji, do: Settings.get(@reaction_emoji_key, @default_reaction_emoji)
 
   def put_token(token) when is_binary(token), do: Settings.put(@token_key, String.trim(token))
-  def put_user_id(user_id) when is_binary(user_id), do: Settings.put(@user_id_key, String.trim(user_id))
+
+  def put_user_id(user_id) when is_binary(user_id),
+    do: Settings.put(@user_id_key, String.trim(user_id))
 
   def put_reaction_emoji(emoji) when is_binary(emoji) do
     emoji = emoji |> String.trim() |> String.trim(":")
@@ -56,7 +58,9 @@ defmodule Toodle.Slack do
       results = Enum.map(channels, &poll_channel(token, user_id, &1, Map.get(cursors, &1["id"])))
       mention_created = results |> Enum.map(&elem(&1, 1)) |> Enum.sum()
       reaction_created = poll_reactions(token, user_id)
-      {:ok, %{channels_checked: length(channels), tasks_created: mention_created + reaction_created}}
+
+      {:ok,
+       %{channels_checked: length(channels), tasks_created: mention_created + reaction_created}}
     end
   end
 
@@ -69,14 +73,21 @@ defmodule Toodle.Slack do
     case Client.list_all_reactions(token) do
       {:ok, items} ->
         emoji = reaction_emoji()
-        items |> Enum.filter(&reacted_with?(&1, emoji, user_id)) |> Enum.count(&import_reaction(token, &1))
+
+        items
+        |> Enum.filter(&reacted_with?(&1, emoji, user_id))
+        |> Enum.count(&import_reaction(token, &1))
 
       {:error, _reason} ->
         0
     end
   end
 
-  defp reacted_with?(%{"type" => "message", "message" => %{"reactions" => reactions}}, emoji, user_id)
+  defp reacted_with?(
+         %{"type" => "message", "message" => %{"reactions" => reactions}},
+         emoji,
+         user_id
+       )
        when is_list(reactions) do
     Enum.any?(reactions, fn r -> r["name"] == emoji and user_id in (r["users"] || []) end)
   end
@@ -130,7 +141,9 @@ defmodule Toodle.Slack do
     end
   end
 
-  defp mentions?(%{"text" => text}, mention) when is_binary(text), do: String.contains?(text, mention)
+  defp mentions?(%{"text" => text}, mention) when is_binary(text),
+    do: String.contains?(text, mention)
+
   defp mentions?(_message, _mention), do: false
 
   defp import_message(token, channel, message) do

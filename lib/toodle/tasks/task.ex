@@ -92,8 +92,12 @@ defmodule Toodle.Tasks.Task do
     ])
     |> validate_required([:project_id, :title, :slack_channel_id, :slack_message_ts])
     |> foreign_key_constraint(:project_id)
-    |> unsafe_validate_unique([:slack_channel_id, :slack_message_ts], Repo, error_key: :slack_message_ts)
-    |> unique_constraint([:slack_channel_id, :slack_message_ts], name: :unique_slack_message_per_task)
+    |> unsafe_validate_unique([:slack_channel_id, :slack_message_ts], Repo,
+      error_key: :slack_message_ts
+    )
+    |> unique_constraint([:slack_channel_id, :slack_message_ts],
+      name: :unique_slack_message_per_task
+    )
     |> validate_title_uniqueness()
   end
 
@@ -174,7 +178,8 @@ defmodule Toodle.Tasks.Task do
       parent_id ->
         changeset
         |> unsafe_validate_unique([:title], Repo,
-          query: from(t in __MODULE__, where: t.parent_task_id == ^parent_id and is_nil(t.archived_at))
+          query:
+            from(t in __MODULE__, where: t.parent_task_id == ^parent_id and is_nil(t.archived_at))
         )
         |> unique_constraint(:title, name: :unique_subtask_title_per_parent)
     end

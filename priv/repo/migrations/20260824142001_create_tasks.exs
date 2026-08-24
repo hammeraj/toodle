@@ -4,7 +4,10 @@ defmodule Toodle.Repo.Migrations.CreateTasks do
   def change do
     create table(:tasks, primary_key: false) do
       add :id, :binary_id, primary_key: true
-      add :project_id, references(:projects, type: :binary_id, on_delete: :delete_all), null: false
+
+      add :project_id, references(:projects, type: :binary_id, on_delete: :delete_all),
+        null: false
+
       add :sprint_id, references(:sprints, type: :binary_id, on_delete: :nilify_all)
       add :parent_task_id, references(:tasks, type: :binary_id, on_delete: :delete_all)
 

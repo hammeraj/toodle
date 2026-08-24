@@ -18,6 +18,9 @@ defmodule Toodle.MCP.Tools.StartTask do
     reply(Support.transition(task_id, :in_progress), frame)
   end
 
-  defp reply({:ok, summary}, frame), do: {:reply, Response.tool() |> Response.json(summary), frame}
-  defp reply({:error, message}, frame), do: {:reply, Response.tool() |> Response.error(message), frame}
+  defp reply({:ok, summary}, frame),
+    do: {:reply, Response.tool() |> Response.json(summary), frame}
+
+  defp reply({:error, message}, frame),
+    do: {:reply, Response.tool() |> Response.error(message), frame}
 end

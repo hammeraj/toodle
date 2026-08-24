@@ -40,8 +40,11 @@ defmodule Toodle.MCP.Tools.ListTasks do
 
   defp parse_status(status) do
     case Enum.find(Task.statuses(), &(Atom.to_string(&1) == status)) do
-      nil -> {:error, "Unknown status #{inspect(status)} — must be one of #{inspect(Task.statuses())}"}
-      atom -> {:ok, atom}
+      nil ->
+        {:error, "Unknown status #{inspect(status)} — must be one of #{inspect(Task.statuses())}"}
+
+      atom ->
+        {:ok, atom}
     end
   end
 end

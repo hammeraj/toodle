@@ -107,7 +107,10 @@ defmodule ToodleWeb.TaskLive.Show do
           <section class="rounded-2xl border border-base-300 bg-base-100 p-5 space-y-3 shadow-sm">
             <h3 class="font-semibold">Blocks &amp; interrupts</h3>
             <p :if={@task.task_events == []} class="text-sm opacity-60">None yet.</p>
-            <div :for={event <- @task.task_events} class="text-sm border-l-2 pl-3 border-base-content/20">
+            <div
+              :for={event <- @task.task_events}
+              class="text-sm border-l-2 pl-3 border-base-content/20"
+            >
               <div class="font-medium">
                 {humanize(event.kind)} · {format_datetime(event.started_at)}
                 <span :if={event.ended_at}>→ {format_datetime(event.ended_at)}</span>
@@ -115,7 +118,10 @@ defmodule ToodleWeb.TaskLive.Show do
               </div>
               <div :if={event.blocking_task} class="opacity-80">
                 Blocked by
-                <.link navigate={~p"/tasks/#{event.blocking_task}"} class="hover:underline font-medium">
+                <.link
+                  navigate={~p"/tasks/#{event.blocking_task}"}
+                  class="hover:underline font-medium"
+                >
                   {event.blocking_task.title}
                 </.link>
               </div>
@@ -157,7 +163,12 @@ defmodule ToodleWeb.TaskLive.Show do
           <section class="rounded-2xl border border-base-300 bg-base-100 p-5 space-y-3 shadow-sm">
             <h3 class="font-semibold">Linear</h3>
 
-            <.form :if={is_nil(@task.linear_identifier)} for={%{}} phx-submit="link_linear" class="flex gap-2">
+            <.form
+              :if={is_nil(@task.linear_identifier)}
+              for={%{}}
+              phx-submit="link_linear"
+              class="flex gap-2"
+            >
               <input
                 type="text"
                 name="identifier"
@@ -226,7 +237,11 @@ defmodule ToodleWeb.TaskLive.Show do
 
       {:error, :blocker_required} ->
         {:noreply,
-         put_flash(socket, :error, "Pick a blocking task or write a reason to block/interrupt a task")}
+         put_flash(
+           socket,
+           :error,
+           "Pick a blocking task or write a reason to block/interrupt a task"
+         )}
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Couldn't change that task's status")}

@@ -19,6 +19,7 @@ defmodule Toodle.MCP.Tools.GetTask do
     task = Tasks.get_task_with_details!(task_id)
     {:reply, Response.tool() |> Response.json(Support.task_detail(task)), frame}
   rescue
-    Ecto.NoResultsError -> {:reply, Response.tool() |> Response.error("No task with that id"), frame}
+    Ecto.NoResultsError ->
+      {:reply, Response.tool() |> Response.error("No task with that id"), frame}
   end
 end
