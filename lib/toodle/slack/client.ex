@@ -43,6 +43,32 @@ defmodule Toodle.Slack.Client do
     end
   end
 
+  @doc """
+  All messages the token's user has reacted to, any emoji, any channel —
+  including thread replies (reactions.list isn't scoped to channel history,
+  so this is the only way to catch a mention buried in a thread). Paginates
+  internally since there's no timestamp cursor to filter server-side.
+  """
+  def list_all_reactions(token), do: fetch_reactions_page(token, nil, [])
+
+  defp fetch_reactions_page(token, cursor, acc) do
+    params = %{limit: 200}
+    params = if cursor, do: Map.put(params, :cursor, cursor), else: params
+
+    case request(token, "reactions.list", params) do
+      {:ok, %{"items" => items} = body} ->
+        acc = acc ++ items
+
+        case get_in(body, ["response_metadata", "next_cursor"]) do
+          next when is_binary(next) and next != "" -> fetch_reactions_page(token, next, acc)
+          _ -> {:ok, acc}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp request(token, method, params) do
     case Req.get(@endpoint <> "/" <> method,
            params: params,

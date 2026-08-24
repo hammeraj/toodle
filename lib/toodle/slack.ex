@@ -1,13 +1,18 @@
 defmodule Toodle.Slack do
   @moduledoc """
-  Polls public Slack channels you're already a member of for messages that
-  mention you, creating a task in the "Inbox" project for each new one.
-  No bot, no channel invites — authenticates as you via a personal Slack
-  user token, since (unlike bot tokens) a user token can read public
-  channel history without needing to be invited first.
+  Polls Slack for two kinds of things to turn into tasks in the "Inbox"
+  project: (1) messages in public channels you're already a member of that
+  mention you, and (2) any message — including thread replies — that you've
+  manually reacted to with a chosen emoji. No bot, no channel invites —
+  authenticates as you via a personal Slack user token, since (unlike bot
+  tokens) a user token can read public channel history without needing to
+  be invited first.
 
-  Scope for now: top-level channel messages only (no thread replies), and
-  public channels only.
+  The mention scan is top-level-channel-messages-only (Slack's channel
+  history API doesn't surface thread replies at all, and there's no cheap
+  way to watch every thread for new activity). The emoji-reaction scan is
+  the intended workaround for that: reacting to a buried thread reply picks
+  it up regardless of where it lives.
   """
 
   alias Toodle.{Projects, Settings, Tasks}
@@ -16,6 +21,8 @@ defmodule Toodle.Slack do
   @token_key "slack_user_token"
   @user_id_key "slack_user_id"
   @cursors_key "slack_channel_cursors"
+  @reaction_emoji_key "slack_reaction_emoji"
+  @default_reaction_emoji "star"
   @title_max_length 120
 
   def configured? do
@@ -24,11 +31,17 @@ defmodule Toodle.Slack do
 
   def token, do: Settings.get(@token_key)
   def user_id, do: Settings.get(@user_id_key)
+  def reaction_emoji, do: Settings.get(@reaction_emoji_key, @default_reaction_emoji)
 
   def put_token(token) when is_binary(token), do: Settings.put(@token_key, String.trim(token))
   def put_user_id(user_id) when is_binary(user_id), do: Settings.put(@user_id_key, String.trim(user_id))
 
-  @doc "Runs one poll cycle: check each member channel for new mentions, create Inbox tasks for them."
+  def put_reaction_emoji(emoji) when is_binary(emoji) do
+    emoji = emoji |> String.trim() |> String.trim(":")
+    Settings.put(@reaction_emoji_key, if(emoji == "", do: @default_reaction_emoji, else: emoji))
+  end
+
+  @doc "Runs one poll cycle: check for new mentions and new reactions, create Inbox tasks for them."
   def poll do
     if configured?() do
       do_poll(token(), user_id())
@@ -41,9 +54,37 @@ defmodule Toodle.Slack do
     with {:ok, channels} <- Client.list_my_channels(token) do
       cursors = get_cursors()
       results = Enum.map(channels, &poll_channel(token, user_id, &1, Map.get(cursors, &1["id"])))
-      created = results |> Enum.map(&elem(&1, 1)) |> Enum.sum()
-      {:ok, %{channels_checked: length(channels), tasks_created: created}}
+      mention_created = results |> Enum.map(&elem(&1, 1)) |> Enum.sum()
+      reaction_created = poll_reactions(token, user_id)
+      {:ok, %{channels_checked: length(channels), tasks_created: mention_created + reaction_created}}
     end
+  end
+
+  # reactions.list has no timestamp cursor to filter server-side, so every
+  # poll re-walks all of it — cheap in practice since it's bounded by how
+  # much you personally react, not channel volume. Dedup rides on the same
+  # (channel, ts) unique index Tasks already enforces for mention imports,
+  # so a message that's both a mention and reacted-to only creates one task.
+  defp poll_reactions(token, user_id) do
+    case Client.list_all_reactions(token) do
+      {:ok, items} ->
+        emoji = reaction_emoji()
+        items |> Enum.filter(&reacted_with?(&1, emoji, user_id)) |> Enum.count(&import_reaction(token, &1))
+
+      {:error, _reason} ->
+        0
+    end
+  end
+
+  defp reacted_with?(%{"type" => "message", "message" => %{"reactions" => reactions}}, emoji, user_id)
+       when is_list(reactions) do
+    Enum.any?(reactions, fn r -> r["name"] == emoji and user_id in (r["users"] || []) end)
+  end
+
+  defp reacted_with?(_item, _emoji, _user_id), do: false
+
+  defp import_reaction(token, %{"channel" => channel_id, "message" => message}) do
+    do_import(token, channel_id, message["ts"], message["text"])
   end
 
   # First time seeing this channel: seed the cursor to "now" without
@@ -93,15 +134,19 @@ defmodule Toodle.Slack do
   defp mentions?(_message, _mention), do: false
 
   defp import_message(token, channel, message) do
+    do_import(token, channel["id"], message["ts"], message["text"])
+  end
+
+  defp do_import(token, channel_id, ts, text) do
     inbox = Projects.get_or_create_inbox!()
-    permalink = fetch_permalink(token, channel["id"], message["ts"])
+    permalink = fetch_permalink(token, channel_id, ts)
 
     attrs = %{
       project_id: inbox.id,
-      title: title_from(message["text"]),
-      description: message["text"],
-      slack_channel_id: channel["id"],
-      slack_message_ts: message["ts"],
+      title: title_from(text),
+      description: text,
+      slack_channel_id: channel_id,
+      slack_message_ts: ts,
       slack_permalink: permalink
     }
 

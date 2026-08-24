@@ -44,7 +44,9 @@ defmodule ToodleWeb.SettingsLive.Index do
             Checks public channels you're already in for messages mentioning you, about once a
             minute, and drops each new one into the "Inbox" project — no bot to invite anywhere.
             Ask Claude to triage the inbox to move items to the right project. Top-level channel
-            messages only for now (no thread replies, no private channels/DMs).
+            messages only for mentions (no thread replies, no private channels/DMs) — but react
+            with the emoji below to <em>any</em> message, including thread replies, to add it
+            manually.
           </p>
           <p>
             <span :if={@slack_configured?} class="badge badge-success badge-soft">
@@ -76,6 +78,16 @@ defmodule ToodleWeb.SettingsLive.Index do
                 class="input input-bordered w-full"
               />
             </label>
+            <label class="fieldset">
+              <span class="label mb-1">Manual-add reaction emoji</span>
+              <input
+                type="text"
+                name="reaction_emoji"
+                value={@slack_reaction_emoji}
+                placeholder="star"
+                class="input input-bordered w-full"
+              />
+            </label>
             <button type="submit" class="btn btn-primary">Save</button>
           </.form>
 
@@ -94,7 +106,8 @@ defmodule ToodleWeb.SettingsLive.Index do
      socket
      |> assign(:page_title, "Settings")
      |> assign(:linear_configured?, Linear.api_key_configured?())
-     |> assign(:slack_configured?, Slack.configured?())}
+     |> assign(:slack_configured?, Slack.configured?())
+     |> assign(:slack_reaction_emoji, Slack.reaction_emoji())}
   end
 
   @impl true
@@ -111,7 +124,11 @@ defmodule ToodleWeb.SettingsLive.Index do
      |> put_flash(:info, "Linear API key saved")}
   end
 
-  def handle_event("save_slack_token", %{"token" => token, "user_id" => user_id}, socket) do
+  def handle_event(
+        "save_slack_token",
+        %{"token" => token, "user_id" => user_id, "reaction_emoji" => reaction_emoji},
+        socket
+      ) do
     cond do
       token == "" and !socket.assigns.slack_configured? ->
         {:noreply, put_flash(socket, :error, "Enter a token first")}
@@ -122,10 +139,12 @@ defmodule ToodleWeb.SettingsLive.Index do
       true ->
         if token != "", do: Slack.put_token(token)
         Slack.put_user_id(user_id)
+        if reaction_emoji != "", do: Slack.put_reaction_emoji(reaction_emoji)
 
         {:noreply,
          socket
          |> assign(:slack_configured?, Slack.configured?())
+         |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
          |> put_flash(:info, "Slack settings saved")}
     end
   end
