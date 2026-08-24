@@ -133,6 +133,9 @@ defmodule ToodleWeb.TaskLive.Show do
               <:item title="Start date">{@task.start_date || "—"}</:item>
               <:item title="Due date">{@task.due_date || "—"}</:item>
               <:item title="Total tracked">{format_duration(@total_seconds)}</:item>
+              <:item :if={@task.slack_permalink} title="Source">
+                <a href={@task.slack_permalink} target="_blank" class="link">View in Slack</a>
+              </:item>
             </.list>
           </section>
 

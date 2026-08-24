@@ -77,6 +77,23 @@ defmodule Toodle.Tasks do
     |> Repo.insert()
   end
 
+  @doc """
+  Creates a task from a Slack mention. Returns `{:ok, task}`, `{:ok, :duplicate}`
+  if this message was already imported, or `{:error, changeset}`.
+  """
+  def create_from_slack(attrs) do
+    %Task{}
+    |> Task.slack_import_changeset(stringify_keys(attrs))
+    |> Repo.insert()
+    |> case do
+      {:ok, task} ->
+        {:ok, task}
+
+      {:error, %Ecto.Changeset{errors: errors} = changeset} ->
+        if Keyword.has_key?(errors, :slack_message_ts), do: {:ok, :duplicate}, else: {:error, changeset}
+    end
+  end
+
   @doc "Creates a subtask under `parent`, inheriting its project (and sprint, unless overridden)."
   def add_subtask(%Task{} = parent, attrs \\ %{}) do
     attrs

@@ -45,6 +45,28 @@ defmodule Toodle.Projects do
     end
   end
 
+  @inbox_name "Inbox"
+
+  @doc "The catch-all project Slack-sourced tasks land in, auto-created on first use."
+  def get_or_create_inbox! do
+    query = from(p in Project, where: p.name == ^@inbox_name and is_nil(p.archived_at))
+
+    case Repo.one(query) do
+      nil ->
+        {:ok, project} =
+          create_project(%{
+            name: @inbox_name,
+            description: "Auto-created for tasks pulled in from Slack mentions.",
+            color: next_unused_color()
+          })
+
+        project
+
+      project ->
+        project
+    end
+  end
+
   def get_project!(id), do: Repo.get!(Project, id)
 
   def create_project(attrs \\ %{}) do

@@ -31,7 +31,8 @@ defmodule Toodle.Application do
       [
         {DNSCluster, query: Application.get_env(:toodle, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Toodle.PubSub},
-        ToodleWeb.Endpoint
+        ToodleWeb.Endpoint,
+        Toodle.Slack.Poller
       ] ++ desktop_children()
     end
   end

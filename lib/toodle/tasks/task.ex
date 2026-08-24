@@ -30,6 +30,10 @@ defmodule Toodle.Tasks.Task do
     field :linear_assignee_name, :string
     field :linear_synced_at, :utc_datetime
 
+    field :slack_channel_id, :string
+    field :slack_message_ts, :string
+    field :slack_permalink, :string
+
     belongs_to :project, Project
     belongs_to :sprint, Sprint
     belongs_to :parent_task, __MODULE__, foreign_key: :parent_task_id
@@ -73,6 +77,24 @@ defmodule Toodle.Tasks.Task do
     |> cast(attrs, [:status, :completed_at])
     |> validate_required([:status])
     |> validate_inclusion(:status, @statuses)
+  end
+
+  @doc "Creates a task from a Slack mention. `slack_message_ts` + `slack_channel_id` dedup against re-polling the same message."
+  def slack_import_changeset(task, attrs) do
+    task
+    |> cast(attrs, [
+      :project_id,
+      :title,
+      :description,
+      :slack_channel_id,
+      :slack_message_ts,
+      :slack_permalink
+    ])
+    |> validate_required([:project_id, :title, :slack_channel_id, :slack_message_ts])
+    |> foreign_key_constraint(:project_id)
+    |> unsafe_validate_unique([:slack_channel_id, :slack_message_ts], Repo, error_key: :slack_message_ts)
+    |> unique_constraint([:slack_channel_id, :slack_message_ts], name: :unique_slack_message_per_task)
+    |> validate_title_uniqueness()
   end
 
   @doc "Archives (or unarchives, passing `archived_at: nil`) a task."

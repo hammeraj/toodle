@@ -22,6 +22,7 @@ defmodule Toodle.MCP.Server do
   component(Toodle.MCP.Tools.CreateTask)
   component(Toodle.MCP.Tools.AddSubtask)
   component(Toodle.MCP.Tools.UpdateTask)
+  component(Toodle.MCP.Tools.MoveTask)
   component(Toodle.MCP.Tools.StartTask)
   component(Toodle.MCP.Tools.PauseTask)
   component(Toodle.MCP.Tools.BlockTask)
