@@ -18,7 +18,18 @@ defmodule Toodle.MixProject do
       # directory rather than fighting over `_build`/`deps`.
       deps_path: deps_path(),
       build_path: build_path()
-    ] ++ releases_config()
+    ] ++ releases_config() ++ package_config()
+  end
+
+  # No native webview host binary is shipped yet, so macOS packaging falls
+  # back to the legacy BEAM-first layout (desktop_deployment's default
+  # :host_first layout requires one and isn't set up for this project).
+  defp package_config do
+    if desktop_platform?() do
+      [package: [macos_layout: :release_first]]
+    else
+      []
+    end
   end
 
   # The `desktop` package's own OTP application unconditionally tries to
