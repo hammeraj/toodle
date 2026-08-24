@@ -57,6 +57,16 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# macOS packaging uses desktop_deployment's :host_first layout, where a
+# native webview host (elixir-desktop/webview) spawns the BEAM release —
+# it needs to be the one driving windows/menus instead of the `desktop`
+# package's default wx backend. Windows keeps the wx default: the webview
+# host's Windows support isn't implemented upstream yet.
+if match?({:unix, :darwin}, :os.type()) do
+  config :desktop, :backend, DesktopWebview.Backend
+  config :desktop, :menu_adapter, DesktopWebview.Menu.Adapter
+end
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

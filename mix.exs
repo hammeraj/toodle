@@ -1,6 +1,8 @@
 defmodule Toodle.MixProject do
   use Mix.Project
 
+  @webview_ref "cac66d8aeeddf488d8046db2fd254ac93b5411cb"
+
   def project do
     [
       app: :toodle,
@@ -18,18 +20,7 @@ defmodule Toodle.MixProject do
       # directory rather than fighting over `_build`/`deps`.
       deps_path: deps_path(),
       build_path: build_path()
-    ] ++ releases_config() ++ package_config()
-  end
-
-  # No native webview host binary is shipped yet, so macOS packaging falls
-  # back to the legacy BEAM-first layout (desktop_deployment's default
-  # :host_first layout requires one and isn't set up for this project).
-  defp package_config do
-    if desktop_platform?() do
-      [package: [macos_layout: :release_first]]
-    else
-      []
-    end
+    ] ++ releases_config()
   end
 
   # The `desktop` package's own OTP application unconditionally tries to
@@ -44,6 +35,18 @@ defmodule Toodle.MixProject do
       {:win32, _} -> true
       {:unix, :darwin} -> true
       _ -> false
+    end
+  end
+
+  # The native webview host (used for :host_first macOS packaging) only
+  # supports macOS so far — Windows support is unimplemented upstream, and
+  # Windows packaging doesn't need it. Pinned to a commit SHA rather than a
+  # branch: this dep isn't published to Hex and has no tagged releases yet.
+  defp webview_deps do
+    if match?({:unix, :darwin}, :os.type()) do
+      [{:desktop_webview, github: "elixir-desktop/webview", ref: @webview_ref}]
+    else
+      []
     end
   end
 
@@ -145,7 +148,11 @@ defmodule Toodle.MixProject do
   defp desktop_deps do
     if desktop_platform?() do
       [
-        {:desktop, github: "elixir-desktop/desktop"},
+        # override: true because desktop_webview's own mix.exs declares
+        # `desktop` as a local `path:` dep (for its own monorepo dev setup)
+        # with override: true — our git dep must assert the override too or
+        # Mix treats the two declarations as an unresolved conflict.
+        {:desktop, github: "elixir-desktop/desktop", override: true},
         {:desktop_deployment, github: "elixir-desktop/deployment"},
         {:exqlite, github: "elixir-desktop/exqlite", override: true},
         # desktop_deployment pulls in httpoison ~> 2.3 -> hackney ~> 1.21,
@@ -153,7 +160,7 @@ defmodule Toodle.MixProject do
         # requires the patched hackney 4.x line — force both up.
         {:httpoison, "~> 3.0", override: true},
         {:hackney, "~> 4.0", override: true}
-      ]
+      ] ++ webview_deps()
     else
       []
     end
