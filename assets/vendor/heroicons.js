@@ -3,7 +3,11 @@ const fs = require("fs")
 const path = require("path")
 
 module.exports = plugin(function({matchComponents, theme}) {
-  let iconsDir = path.join(__dirname, "../../deps/heroicons/optimized")
+  // deps/ isn't always the deps dir — config/config.exs sets NODE_PATH to
+  // Mix.Project.deps_path(), which is deps_windows/ on native Windows
+  // builds (see mix.exs). Read it from there instead of assuming ../../deps.
+  let depsPath = process.env.NODE_PATH.split(path.delimiter)[0]
+  let iconsDir = path.join(depsPath, "heroicons/optimized")
   let values = {}
   let icons = [
     ["", "/24/outline"],
