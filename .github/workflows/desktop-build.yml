@@ -43,9 +43,15 @@ jobs:
           vsn=$(erl -noshell -eval 'io:format("~ts", [erlang:system_info(version)]), halt().')
           echo "ERTS_INCLUDE_PATH=$root_dir/erts-$vsn/include" >> "$GITHUB_ENV"
 
+      # Chocolatey registers makensis.exe's directory via the registry, but
+      # GitHub Actions doesn't re-read that for steps already queued in this
+      # job — later steps (mix release, which shells out to `makensis`)
+      # won't find it on PATH unless we append it to GITHUB_PATH ourselves.
       - name: Install NSIS (Windows)
         if: runner.os == 'Windows'
-        run: choco install nsis -y --no-progress
+        run: |
+          choco install nsis -y --no-progress
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
 
       - name: Install ImageMagick (Windows)
         if: runner.os == 'Windows'
