@@ -1,0 +1,108 @@
+name: Desktop Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_glob: _build_windows/prod/*.exe
+          - os: macos-latest
+            artifact_glob: _build/prod/*.dmg
+    runs-on: ${{ matrix.os }}
+    env:
+      MIX_ENV: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.3.4"
+          elixir-version: "1.20.3"
+
+      # Sets up cl.exe/link.exe/nmake on PATH for the rest of this job —
+      # needed to compile exqlite's SQLite NIF (Makefile.win).
+      - name: Set up MSVC dev environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # exqlite's Makefile.win computes this itself via `erl -eval ...`, but
+      # that invocation breaks under nmake's argument quoting on Windows.
+      # Pre-setting the env var makes it skip straight to compiling.
+      - name: Compute ERTS_INCLUDE_PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          root_dir=$(erl -noshell -eval 'io:format("~ts", [code:root_dir()]), halt().')
+          vsn=$(erl -noshell -eval 'io:format("~ts", [erlang:system_info(version)]), halt().')
+          echo "ERTS_INCLUDE_PATH=$root_dir/erts-$vsn/include" >> "$GITHUB_ENV"
+
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y --no-progress
+
+      - name: Install ImageMagick (Windows)
+        if: runner.os == 'Windows'
+        run: choco install imagemagick -y --no-progress --params "/InstallLegacyUtilities"
+
+      - name: Install ImageMagick (macOS)
+        if: runner.os == 'macOS'
+        run: brew install imagemagick
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      # Builds the elixir-desktop/webview native host into
+      # deps/desktop_webview/priv/native/macos/DesktopWebView, where
+      # desktop_deployment discovers it by convention for :host_first
+      # packaging. Needs the deps checkout, not the compiled app.
+      - name: Build native webview host (macOS)
+        if: runner.os == 'macOS'
+        working-directory: deps/desktop_webview
+        run: ./scripts/build_macos.sh
+
+      - name: Compile
+        run: mix compile
+
+      - name: Build assets
+        run: mix assets.deploy
+
+      - name: Build release + installer
+        run: mix release --overwrite
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toodle-${{ runner.os }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    # Only pushes to main touch the public release — workflow_dispatch runs
+    # (used for testing from other branches) still build and upload CI
+    # artifacts above, but shouldn't overwrite it.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # No version tagging yet, so this republishes a single rolling
+      # "latest" release on every push to main rather than piling up
+      # one release per build.
+      - name: Publish latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          prerelease: true
+          files: artifacts/**/*
