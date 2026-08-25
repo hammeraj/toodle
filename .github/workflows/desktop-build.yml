@@ -13,7 +13,13 @@ jobs:
         include:
           - os: windows-latest
             artifact_glob: _build_windows/prod/*.exe
-          - os: macos-latest
+          # Pinned to an arm64 image rather than the rolling "macos-latest"
+          # label -- Toodle only ships an Apple Silicon build, so this must
+          # stay an arm64 runner regardless of what "latest" points at.
+          # (macos-15 is GitHub's arm64 image; the "-large" suffix is the
+          # Intel variant.) The "Verify arm64 build" step below asserts the
+          # resulting binary's architecture rather than trusting the label.
+          - os: macos-15
             artifact_glob: _build/prod/*.dmg
     runs-on: ${{ matrix.os }}
     env:
@@ -72,6 +78,19 @@ jobs:
 
       - name: Build release + installer
         run: mix release --overwrite
+
+      - name: Verify arm64 build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Desktop.Deployment names the emulator binary after the app
+          # (Toodle.smp), not the erts-default beam.smp.
+          bin=$(ls _build/prod/Toodle.app/Contents/Resources/erts-*/bin/*.smp)
+          arch=$(lipo -archs "$bin")
+          echo "$bin architecture(s): $arch"
+          if [ "$arch" != "arm64" ]; then
+            echo "::error::Expected an arm64-only build, got: $arch" >&2
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

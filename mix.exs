@@ -73,13 +73,198 @@ defmodule Toodle.MixProject do
         releases: [
           toodle: [
             applications: [runtime_tools: :permanent, ssl: :permanent],
-            steps: [:assemble, &stamp_build_sha/1, &Desktop.Deployment.generate_installer/1]
+            steps: [
+              :assemble,
+              &make_release_writable/1,
+              &stamp_build_sha/1,
+              &Desktop.Deployment.generate_installer/1,
+              &fixup_rpath_deps/1
+            ]
           ]
         ]
       ]
     else
       []
     end
+  end
+
+  # Some Erlang distributions (confirmed with Homebrew's arm64 build) ship a
+  # few erts/bin scripts (e.g. `start`) read-only, and :assemble preserves
+  # that permission bit when it copies erts into the release. Desktop.Deployment's
+  # macOS codesigning pass then fails outright the first time it reaches one of
+  # those files -- `codesign` needs to write to whatever it signs. Force the
+  # whole release tree writable before that step runs; harmless on Windows,
+  # where there's nothing to codesign but this step still runs.
+  defp make_release_writable(release) do
+    case :os.type() do
+      {:unix, :darwin} -> System.cmd("chmod", ["-R", "u+w", release.path])
+      _ -> :ok
+    end
+
+    release
+  end
+
+  # Desktop.Deployment bundles every dylib/so a NIF transitively depends on
+  # so the app runs without Homebrew installed -- but its dependency walker
+  # (Package.MacOS.find_deps) only recognizes and rewrites dependencies
+  # recorded as an absolute /opt/homebrew (or /usr/local) path. Some Homebrew
+  # formulas record *their own* inter-library dependencies as a bare
+  # `@rpath/<name>.dylib` instead (confirmed hands-on: webp 1.6.0's
+  # libwebp.7.dylib depends on libsharpyuv.0.dylib this way). Those deps are
+  # invisible to the walker, never get bundled, and the app then crashes on
+  # launch the instant something dlopen's the referencing library -- for
+  # Toodle that's wx's image codec support, so *every* launch. Sweep the
+  # finished bundle for exactly this pattern and patch it up the same way
+  # Desktop.Deployment handles every other bundled dependency: copy the
+  # missing library alongside its referrer and repoint the load command at
+  # @loader_path. Re-signs and re-packages only if a patch was actually
+  # needed, so this is a no-op the moment upstream (either Homebrew or
+  # desktop_deployment) fixes the root cause.
+  defp fixup_rpath_deps(release) do
+    case :os.type() do
+      {:unix, :darwin} -> do_fixup_rpath_deps(release)
+      _ -> :ok
+    end
+
+    release
+  end
+
+  defp do_fixup_rpath_deps(release) do
+    build_root = Path.join([release.path, "..", ".."]) |> Path.expand()
+
+    case Path.wildcard(Path.join(build_root, "*.app")) do
+      [app_root | _] -> patch_app_bundle(app_root, build_root, release.version)
+      [] -> :ok
+    end
+  end
+
+  defp patch_app_bundle(app_root, build_root, version) do
+    if patch_missing_rpath_deps(app_root) do
+      alias Desktop.Deployment.Package.MacOS
+
+      IO.puts(
+        "Patched @rpath-only dependencies missed by Desktop.Deployment, re-signing and re-packaging"
+      )
+
+      developer_id = MacOS.find_developer_id()
+      if developer_id, do: MacOS.codesign(app_root), else: MacOS.adhoc_sign(app_root)
+
+      dmg = rebuild_dmg(app_root, build_root, version)
+      if developer_id, do: MacOS.package_sign(developer_id, dmg)
+    end
+  end
+
+  defp patch_missing_rpath_deps(app_root) do
+    app_root
+    |> macho_files()
+    |> Enum.reduce(false, fn object, patched? ->
+      dir = Path.dirname(object)
+
+      missing =
+        object |> unresolved_rpath_deps() |> Enum.reject(&File.exists?(Path.join(dir, &1)))
+
+      Enum.each(missing, &copy_and_repoint_dep(object, dir, &1))
+      patched? or missing != []
+    end)
+  end
+
+  defp macho_files(app_root) do
+    libs = Path.wildcard(Path.join(app_root, "**/*.{dylib,so}"))
+
+    bins =
+      Path.join(app_root, "**")
+      |> Path.wildcard()
+      |> Enum.filter(fn path ->
+        File.regular?(path) and not String.contains?(Path.basename(path), ".") and
+          Bitwise.band(0o100, File.stat!(path).mode) != 0
+      end)
+
+    Enum.uniq(libs ++ bins)
+  end
+
+  defp unresolved_rpath_deps(object) do
+    case System.cmd("otool", ["-L", object]) do
+      {output, 0} ->
+        output
+        |> String.split("\n")
+        |> Enum.drop(1)
+        |> Enum.map(fn line -> line |> String.trim() |> String.split(" ") |> List.first() end)
+        |> Enum.filter(&(is_binary(&1) and String.starts_with?(&1, "@rpath/")))
+        |> Enum.map(&String.replace_prefix(&1, "@rpath/", ""))
+
+      _ ->
+        []
+    end
+  end
+
+  defp copy_and_repoint_dep(object, dir, name) do
+    source =
+      find_on_disk(name) ||
+        raise """
+        #{object} depends on @rpath/#{name}, which Desktop.Deployment didn't bundle \
+        (it only follows absolute-path dependencies), and #{name} wasn't found under \
+        /opt/homebrew or /usr/local either. Install it via Homebrew, or extend \
+        find_on_disk/1 in mix.exs.
+        """
+
+    dest = Path.join(dir, name)
+    if not File.exists?(dest), do: File.cp!(source, dest)
+    System.cmd("install_name_tool", ["-change", "@rpath/#{name}", "@loader_path/#{name}", object])
+  end
+
+  defp find_on_disk(name) do
+    [
+      "/opt/homebrew/opt/*/lib/#{name}",
+      "/opt/homebrew/lib/#{name}",
+      "/opt/homebrew/Cellar/*/*/lib/#{name}",
+      "/usr/local/opt/*/lib/#{name}",
+      "/usr/local/lib/#{name}",
+      "/usr/local/Cellar/*/*/lib/#{name}"
+    ]
+    |> Enum.find_value(fn glob ->
+      case Path.wildcard(glob) do
+        [path | _] -> path
+        [] -> nil
+      end
+    end)
+  end
+
+  # Mirrors Desktop.Deployment.Package.MacOS's own (private) dmg builder --
+  # only reached when fixup_rpath_deps/1 actually patched the bundle, so the
+  # dmg it already produced reflects the patch too rather than the stale
+  # pre-patch copy.
+  defp rebuild_dmg(app_root, build_root, version) do
+    name = Path.basename(app_root, ".app")
+    out_file = Path.join(build_root, "#{name}-#{version}.dmg")
+    tmp_file = out_file <> ".tmp.#{:rand.uniform(1_000_000_000)}.dmg"
+    volume = Path.join("/Volumes", name)
+
+    File.rm(out_file)
+
+    {_, 0} =
+      System.cmd("hdiutil", [
+        "create",
+        "-srcfolder",
+        app_root,
+        "-volname",
+        name,
+        "-fs",
+        "HFS+",
+        "-layout",
+        "NONE",
+        "-format",
+        "UDRW",
+        tmp_file
+      ])
+
+    if File.exists?(volume), do: System.cmd("hdiutil", ["detach", volume])
+    {_, 0} = System.cmd("hdiutil", ["attach", tmp_file])
+    System.cmd("ln", ["-s", "/Applications", Path.join(volume, "Applications")])
+    System.cmd("hdiutil", ["detach", volume])
+    {_, 0} = System.cmd("hdiutil", ["convert", tmp_file, "-format", "ULFO", "-o", out_file])
+    File.rm(tmp_file)
+
+    out_file
   end
 
   # The CI-published GitHub release reuses a single rolling "latest" tag on

@@ -9,12 +9,14 @@ defmodule Toodle.Updater.Applier do
   this BEAM entirely, waits a moment for this process to actually exit and
   release its file handles, then does the real work and relaunches.
 
-  Verified hands-on end-to-end on Windows (real install, real reinstall,
-  real relaunch). The macOS path is implemented with the same care but is
-  unverified -- this session has no macOS access to test it on. It's
-  written to fail safe: the original .app is never touched until the new
-  one has already been copied successfully, so a failure partway through
-  leaves the existing install intact rather than gone.
+  Verified hands-on end-to-end on both Windows (real install, real
+  reinstall, real relaunch) and macOS (real .app, real backup/swap/relaunch
+  via a live remote-console-triggered apply, on Apple Silicon). Both are
+  written to fail safe: the original install is never touched until the
+  new one has already been staged successfully (macOS's helper runs under
+  `set -e`, so a failed `cp` aborts before the existing .app is moved
+  aside), so a failure partway through leaves the existing install intact
+  rather than gone.
   """
 
   require Logger
@@ -72,22 +74,31 @@ defmodule Toodle.Updater.Applier do
       app_root = current_app_bundle()
       staged = app_root <> ".new"
       backup = app_root <> ".old"
+      helper_path = temp_helper_path("sh")
+      log_path = temp_helper_path("log")
 
       script = """
       #!/bin/sh
+      # -e: bail on the first failing step rather than plowing ahead. Without
+      # it, a failed `cp` (disk full, permissions) would still let a later
+      # `mv "#{staged}" "#{app_root}"` run -- and since `mv` moves a source
+      # *into* an existing directory rather than replacing it, that silently
+      # nests the (incomplete) staged copy inside the still-live app_root
+      # instead of leaving the original install alone.
+      set -e
+      exec >>"#{log_path}" 2>&1
+      echo "$(date) starting update apply: #{new_app} -> #{app_root}"
       sleep 3
       rm -rf "#{staged}"
       cp -R "#{new_app}" "#{staged}"
-      if [ -d "#{staged}" ]; then
-        rm -rf "#{backup}"
-        mv "#{app_root}" "#{backup}"
-        mv "#{staged}" "#{app_root}"
-        open "#{app_root}"
-      fi
+      rm -rf "#{backup}"
+      mv "#{app_root}" "#{backup}"
+      mv "#{staged}" "#{app_root}"
+      open "#{app_root}"
       hdiutil detach "#{mount_point}" -quiet
+      echo "$(date) update applied successfully"
       """
 
-      helper_path = temp_helper_path("sh")
       File.write!(helper_path, script)
       File.chmod!(helper_path, 0o755)
 
