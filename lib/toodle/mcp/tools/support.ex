@@ -33,6 +33,18 @@ defmodule Toodle.MCP.Tools.Support do
     })
   end
 
+  def linear_summary(task) do
+    %{
+      id: task.id,
+      linear_identifier: task.linear_identifier,
+      linear_url: task.linear_url,
+      linear_title: task.linear_title,
+      linear_state: task.linear_state,
+      linear_assignee_name: task.linear_assignee_name,
+      linear_synced_at: task.linear_synced_at && DateTime.to_iso8601(task.linear_synced_at)
+    }
+  end
+
   defp open_event(events) do
     case Enum.find(events, &is_nil(&1.ended_at)) do
       nil ->

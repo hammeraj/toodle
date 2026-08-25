@@ -11,7 +11,7 @@ defmodule Toodle.MCP.Tools.AddSubtask do
     field(:parent_task_id, :string, required: true)
     field(:title, :string, required: true)
     field(:description, :string)
-    field(:estimate_hours, :float)
+    field(:estimate_hours, {:either, {:integer, :float}})
   end
 
   @impl true

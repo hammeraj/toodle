@@ -11,7 +11,7 @@ defmodule Toodle.MCP.Tools.CreateTask do
     field(:project_id, :string, required: true)
     field(:title, :string, required: true)
     field(:description, :string)
-    field(:estimate_hours, :float)
+    field(:estimate_hours, {:either, {:integer, :float}})
     field(:start_date, :string, description: "ISO8601 date, e.g. 2026-09-01")
     field(:due_date, :string, description: "ISO8601 date, e.g. 2026-09-05")
   end

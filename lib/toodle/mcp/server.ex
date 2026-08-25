@@ -30,6 +30,9 @@ defmodule Toodle.MCP.Server do
   component(Toodle.MCP.Tools.InterruptTask)
   component(Toodle.MCP.Tools.CompleteTask)
   component(Toodle.MCP.Tools.GetTimeTotals)
+  component(Toodle.MCP.Tools.LinkLinearIssue)
+  component(Toodle.MCP.Tools.RefreshLinearIssue)
+  component(Toodle.MCP.Tools.UnlinkLinearIssue)
 
   @impl true
   def init(_client_info, frame) do
