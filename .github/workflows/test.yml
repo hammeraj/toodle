@@ -16,7 +16,7 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "27.3.4"
+          otp-version: "28.5.0"
           elixir-version: "1.20.3"
 
       # Desktop packaging deps (desktop, exqlite git fork, etc.) are only

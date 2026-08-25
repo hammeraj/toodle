@@ -23,7 +23,7 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "27.3.4"
+          otp-version: "28.5.0"
           elixir-version: "1.20.3"
 
       # Sets up cl.exe/link.exe/nmake on PATH for the rest of this job —
