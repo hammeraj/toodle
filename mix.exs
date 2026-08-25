@@ -76,7 +76,6 @@ defmodule Toodle.MixProject do
             steps: [
               :assemble,
               &disable_distribution/1,
-              &add_mcp_entrypoint/1,
               &Desktop.Deployment.generate_installer/1
             ]
           ]
@@ -90,11 +89,8 @@ defmodule Toodle.MixProject do
   # Toodle is a single-user local desktop app -- it never needs to cluster
   # with another node, ever. The release's default env.bat/env.sh (rendered
   # at :assemble time) leaves RELEASE_DISTRIBUTION unset, which makes the
-  # launcher fall back to `-sname <app>`: a real, connectable Erlang node
-  # under a name that any two instances of this app would collide on. Pin
-  # RELEASE_DISTRIBUTION=none here instead, once, for every launch -- rather
-  # than requiring each entrypoint (the GUI launcher, the MCP entrypoint
-  # below, ...) to remember to set it themselves.
+  # launcher fall back to `-sname <app>`: a real, connectable Erlang node.
+  # Pin RELEASE_DISTRIBUTION=none here instead so it's never one at all.
   defp disable_distribution(release) do
     releases_dir = Path.join([release.path, "releases", release.version])
 
@@ -107,53 +103,6 @@ defmodule Toodle.MixProject do
     #!/bin/sh
     export RELEASE_DISTRIBUTION=none
     """)
-
-    release
-  end
-
-  # Drops an `mcp` sibling next to the release's own `bin/toodle` launcher.
-  # desktop_deployment copies the whole `bin/` dir into the packaged app
-  # (Contents/Resources/bin on macOS's :release_first layout, bin\ on
-  # Windows), so this ships in every installer without a separate packaging
-  # step. It lets Claude talk to the *installed app* directly -- no dev
-  # checkout or Elixir install required, just the DMG/installer someone
-  # already has.
-  #
-  # The only thing it needs beyond a normal `bin/toodle start` is
-  # TOODLE_MCP_ONLY=1 (see config/runtime.exs), which skips the web/desktop
-  # UI entirely and boots straight into stdio MCP mode instead -- it can run
-  # concurrently with an already-running GUI instance against the same
-  # on-disk SQLite database (already WAL-mode for exactly this) precisely
-  # because disable_distribution/1 above means neither one is a named
-  # Erlang node for the two to collide over. Verified hands-on (Windows
-  # release binary): boots with no window and no conflict even with two
-  # separate GUI instances already running.
-  defp add_mcp_entrypoint(release) do
-    bin_dir = Path.join(release.path, "bin")
-
-    case :os.type() do
-      {:win32, _} ->
-        File.write!(Path.join(bin_dir, "toodle_mcp.bat"), """
-        @echo off
-        set TOODLE_MCP_ONLY=1
-        call "%~dp0toodle.bat" start
-        """)
-
-      _ ->
-        path = Path.join(bin_dir, "toodle_mcp")
-
-        File.write!(path, """
-        #!/usr/bin/env bash
-        # Spawned by an MCP client (Claude Desktop/Code) to talk to this
-        # installed app over stdio -- see add_mcp_entrypoint/1 in mix.exs.
-        set -euo pipefail
-        cd "$(dirname "$0")"
-        export TOODLE_MCP_ONLY=1
-        exec ./toodle start
-        """)
-
-        File.chmod!(path, 0o755)
-    end
 
     release
   end

@@ -20,15 +20,6 @@ if System.get_env("PHX_SERVER") do
   config :toodle, ToodleWeb.Endpoint, server: true
 end
 
-# `bin/toodle_mcp` sets this so the app boots without the web endpoint and
-# talks MCP over stdio instead — see lib/toodle/application.ex. Logger must
-# not write to stdout in this mode: anything other than MCP protocol frames
-# on stdout corrupts the stdio channel from the client's point of view.
-if System.get_env("TOODLE_MCP_ONLY") do
-  config :toodle, :mcp_only, true
-  config :logger, :default_handler, config: [type: :standard_error]
-end
-
 # The packaged app always runs in desktop mode (a native window wrapping the
 # local-only web endpoint); TOODLE_DESKTOP lets dev mode opt into it too, to
 # test the window without a full release build.
@@ -79,11 +70,11 @@ if config_env() == :prod do
 
   config :toodle, ToodleWeb.Endpoint,
     server: true,
-    # No `port:` here -- it's OS-assigned (see `http:` below) and unknowable
-    # at config time. Nothing reads Endpoint.url/0's port; the desktop
-    # window gets the real bound port via Endpoint.server_info/1 instead
-    # (see Toodle.Application.desktop_window_url/0).
-    url: [host: "localhost", scheme: "http"],
-    http: [ip: {127, 0, 0, 1}, port: 0],
+    # Fixed rather than OS-assigned: Claude's MCP client needs a predictable
+    # http://localhost:<port>/mcp URL to connect to (a plain "url" in its
+    # config can't discover a random one). 47281 has no special meaning,
+    # just picked to be unlikely to collide with anything else.
+    url: [host: "localhost", port: 47_281, scheme: "http"],
+    http: [ip: {127, 0, 0, 1}, port: 47_281],
     secret_key_base: secret_key_base
 end

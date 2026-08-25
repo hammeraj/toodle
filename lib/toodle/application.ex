@@ -13,7 +13,7 @@ defmodule Toodle.Application do
         Toodle.Repo,
         {Ecto.Migrator,
          repos: Application.fetch_env!(:toodle, :ecto_repos), skip: skip_migrations?()}
-      ] ++ web_children() ++ mcp_children()
+      ] ++ web_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
@@ -21,20 +21,24 @@ defmodule Toodle.Application do
     Supervisor.start_link(children, opts)
   end
 
-  # `bin/toodle_mcp` boots this app with `:mcp_only` set so it can talk MCP
-  # over stdio without also trying to bind port 4000 alongside a
-  # simultaneously-running `mix phx.server` — see config/runtime.exs.
   defp web_children do
-    if mcp_only?() do
-      []
-    else
-      [
-        {DNSCluster, query: Application.get_env(:toodle, :dns_cluster_query) || :ignore},
-        {Phoenix.PubSub, name: Toodle.PubSub},
-        ToodleWeb.Endpoint,
-        Toodle.Slack.Poller
-      ] ++ desktop_children()
-    end
+    [
+      {DNSCluster, query: Application.get_env(:toodle, :dns_cluster_query) || :ignore},
+      {Phoenix.PubSub, name: Toodle.PubSub},
+      ToodleWeb.Endpoint,
+      Toodle.Slack.Poller,
+      # Mounted into the router at /mcp (see ToodleWeb.Router) rather than
+      # run as a separate process -- same Repo connection pool as the
+      # LiveView UI, always available whenever this app is running, nothing
+      # extra for Claude to spawn.
+      # start: true bypasses anubis_mcp's own auto-detection of "is an HTTP
+      # server running" (it checks PHX_SERVER/a Phoenix-internal flag that
+      # our release boot path never sets, even though the endpoint is
+      # unambiguously up by this point) -- we already know it should start,
+      # since this is only reached as part of web_children in the first
+      # place.
+      {Toodle.MCP.Server, transport: {:streamable_http, start: true}}
+    ] ++ desktop_children()
   end
 
   # A native window wrapping the (loopback-only) endpoint above — see
@@ -72,11 +76,6 @@ defmodule Toodle.Application do
     "http://localhost:#{port}/"
   end
 
-  defp mcp_children do
-    if mcp_only?(), do: [{Toodle.MCP.Server, transport: :stdio}], else: []
-  end
-
-  defp mcp_only?, do: Application.get_env(:toodle, :mcp_only, false)
   defp desktop_enabled?, do: Application.get_env(:toodle, :desktop_enabled, false)
 
   # Tell Phoenix to update the endpoint configuration
