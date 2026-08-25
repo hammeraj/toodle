@@ -31,10 +31,14 @@ defmodule ToodleWeb.Router do
     end
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", ToodleWeb do
-  #   pipe_through :api
-  # end
+  # Same process, same Repo connection pool as the LiveView UI above --
+  # Claude talks to whatever Toodle instance is actually running, no
+  # separate OS process or transport of its own. See Toodle.MCP.Server.
+  scope "/mcp" do
+    pipe_through :api
+
+    forward "/", Anubis.Server.Transport.StreamableHTTP.Plug, server: Toodle.MCP.Server
+  end
 
   # Enable LiveDashboard in development
   if Application.compile_env(:toodle, :dev_routes) do

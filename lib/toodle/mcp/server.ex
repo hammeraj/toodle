@@ -4,9 +4,10 @@ defmodule Toodle.MCP.Server do
   `Toodle.Tasks`/`Toodle.Projects`/`Toodle.Sprints` contexts the LiveView UI
   uses, so there's exactly one place task/status/timer logic lives.
 
-  Spawned over stdio by `bin/toodle_mcp` (see that script and
-  `Toodle.Application` for why this runs as a separate OS process from the
-  web app rather than a child of it).
+  Runs as a child of `Toodle.Application` alongside the web endpoint (not a
+  separate process) and is reachable over Streamable HTTP at `/mcp`, mounted
+  in `ToodleWeb.Router` — same running app, same Repo connection pool,
+  nothing extra for an MCP client to spawn.
   """
 
   use Anubis.Server,
