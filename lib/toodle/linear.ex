@@ -5,7 +5,7 @@ defmodule Toodle.Linear do
   webhooks, no write-back to Linear.
   """
 
-  alias Toodle.{Repo, Settings}
+  alias Toodle.{Repo, Settings, Tasks}
   alias Toodle.Linear.Client
   alias Toodle.Tasks.Task
 
@@ -44,6 +44,7 @@ defmodule Toodle.Linear do
         task
         |> Task.linear_link_changeset(%{linear_identifier: identifier})
         |> Repo.update()
+        |> Tasks.broadcast_change()
     end
   end
 
@@ -51,6 +52,7 @@ defmodule Toodle.Linear do
     task
     |> Task.linear_unlink_changeset()
     |> Repo.update()
+    |> Tasks.broadcast_change()
   end
 
   @doc "Fetches the latest title/state/assignee from Linear for a task's linked issue."
@@ -71,6 +73,7 @@ defmodule Toodle.Linear do
         linear_synced_at: DateTime.utc_now() |> DateTime.truncate(:second)
       })
       |> Repo.update()
+      |> Tasks.broadcast_change()
     else
       {:key, _} -> {:error, "Set a Linear API key in Settings first"}
       {:error, reason} -> {:error, reason}

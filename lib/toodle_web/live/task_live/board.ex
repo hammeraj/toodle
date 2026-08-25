@@ -50,6 +50,12 @@ defmodule ToodleWeb.TaskLive.Board do
                 </option>
               </select>
             </.form>
+            <.form for={%{}} phx-change="sort_by">
+              <select name="sort_by" class="select select-bordered">
+                <option value="status" selected={@sort_by == :status}>Sort: Status</option>
+                <option value="due_date" selected={@sort_by == :due_date}>Sort: Due date</option>
+              </select>
+            </.form>
             <label class="label cursor-pointer gap-2">
               <input
                 type="checkbox"
@@ -93,6 +99,12 @@ defmodule ToodleWeb.TaskLive.Board do
               {humanize_status(task.status)}
             </span>
           </:col>
+          <:col :let={task} label="Due">
+            <span class="text-sm">{format_date(task.due_date)}</span>
+          </:col>
+          <:col :let={task} label="Estimate">
+            <span class="text-sm">{format_estimate(task.estimate_hours)}</span>
+          </:col>
           <:col :let={task} label="Elapsed">
             <span :if={task.status == :in_progress} class="font-mono text-xs">
               {format_duration(@elapsed[task.id] || 0)}
@@ -117,13 +129,17 @@ defmodule ToodleWeb.TaskLive.Board do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Process.send_after(self(), :tick, 1_000)
+    if connected?(socket) do
+      Process.send_after(self(), :tick, 1_000)
+      Tasks.subscribe()
+    end
 
     {:ok,
      socket
      |> assign(:page_title, "Board")
      |> assign(:project_id, nil)
      |> assign(:show_archived, false)
+     |> assign(:sort_by, :status)
      |> assign(:projects, Projects.list_projects())
      |> assign(:status_badge_class, @status_badge_class)
      |> load_tasks()}
@@ -140,6 +156,10 @@ defmodule ToodleWeb.TaskLive.Board do
 
   def handle_event("toggle_archived", _params, socket) do
     {:noreply, socket |> assign(:show_archived, !socket.assigns.show_archived) |> load_tasks()}
+  end
+
+  def handle_event("sort_by", %{"sort_by" => sort_by}, socket) do
+    {:noreply, socket |> assign(:sort_by, String.to_existing_atom(sort_by)) |> load_tasks()}
   end
 
   def handle_event("change_status", %{"id" => id, "status" => status}, socket) do
@@ -160,6 +180,10 @@ defmodule ToodleWeb.TaskLive.Board do
     {:noreply, assign(socket, :elapsed, elapsed_map(socket.assigns.tasks))}
   end
 
+  def handle_info(:tasks_changed, socket) do
+    {:noreply, load_tasks(socket)}
+  end
+
   defp load_tasks(socket) do
     opts = if socket.assigns.project_id, do: [project_id: socket.assigns.project_id], else: []
     opts = opts ++ [top_level_only: true, include_archived: socket.assigns.show_archived]
@@ -167,12 +191,24 @@ defmodule ToodleWeb.TaskLive.Board do
     tasks =
       Tasks.list_tasks(opts)
       |> Toodle.Repo.preload(:project)
-      |> Enum.sort_by(&{Map.fetch!(@status_rank, &1.status), &1.position, &1.inserted_at})
+      |> sort_tasks(socket.assigns.sort_by)
 
     socket
     |> assign(:tasks, tasks)
     |> assign(:elapsed, elapsed_map(tasks))
   end
+
+  defp sort_tasks(tasks, :due_date), do: Enum.sort_by(tasks, &due_date_sort_key/1)
+
+  defp sort_tasks(tasks, :status) do
+    Enum.sort_by(tasks, &{Map.fetch!(@status_rank, &1.status), &1.position, &1.inserted_at})
+  end
+
+  # Chronological, not Elixir's default struct term order (which would sort
+  # %Date{} by field name, i.e. day before year) — tasks without a due date
+  # sort last rather than first.
+  defp due_date_sort_key(%{due_date: nil}), do: {1, {9999, 12, 31}}
+  defp due_date_sort_key(%{due_date: due_date}), do: {0, Date.to_erl(due_date)}
 
   defp elapsed_map(tasks) do
     tasks
@@ -187,6 +223,16 @@ defmodule ToodleWeb.TaskLive.Board do
   end
 
   defp humanize_status(status), do: status |> to_string() |> String.replace("_", " ")
+
+  defp format_date(nil), do: "—"
+  defp format_date(%Date{} = date), do: Calendar.strftime(date, "%Y-%m-%d")
+
+  defp format_estimate(nil), do: "—"
+
+  defp format_estimate(hours) when hours == trunc(hours),
+    do: "#{trunc(hours)}h"
+
+  defp format_estimate(hours), do: "#{hours}h"
 
   defp format_duration(seconds) do
     h = div(seconds, 3600)

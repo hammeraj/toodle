@@ -48,6 +48,46 @@ defmodule ToodleWeb.SettingsLive.Index do
             with the emoji below to <em>any</em> message, including thread replies, to add it
             manually.
           </p>
+          <details class="text-sm text-base-content/70">
+            <summary class="cursor-pointer font-medium text-base-content/90">
+              How to get a token (required scopes)
+            </summary>
+            <div class="mt-2 space-y-2">
+              <p>
+                Create a Slack app at <a
+                  href="https://api.slack.com/apps"
+                  target="_blank"
+                  class="link"
+                >api.slack.com/apps</a>,
+                then under <strong>OAuth &amp; Permissions</strong>
+                add these under <strong>User Token Scopes</strong>
+                (not Bot Token Scopes — this app authenticates
+                as you, not as a bot, which is why nothing needs inviting to a channel):
+              </p>
+              <ul class="list-disc list-inside font-mono text-xs space-y-0.5">
+                <li>
+                  channels:read <span class="font-sans opacity-70">— list channels you're in</span>
+                </li>
+                <li>
+                  channels:history <span class="font-sans opacity-70">— read mention messages</span>
+                </li>
+                <li>
+                  reactions:read
+                  <span class="font-sans opacity-70">— find messages you reacted to</span>
+                </li>
+              </ul>
+              <p>
+                Install the app to your workspace, then copy the <strong>User OAuth Token</strong>
+                (starts with <code>xoxp-</code>) — not the Bot User OAuth Token — into the field
+                below. If you add scopes to an app that's already installed, reinstall it; Slack
+                won't grant new scopes to an existing token otherwise.
+              </p>
+              <p>
+                Your Slack user ID is on your profile: <strong>⋮ More</strong>
+                → <strong>Copy member ID</strong>.
+              </p>
+            </div>
+          </details>
           <p>
             <span :if={@slack_configured?} class="badge badge-success badge-soft">
               Configured
