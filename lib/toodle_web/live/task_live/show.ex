@@ -26,6 +26,7 @@ defmodule ToodleWeb.TaskLive.Show do
             <.icon name="hero-archive-box" /> Archive
           </.button>
           <.button
+            variant="error"
             phx-click="delete"
             data-confirm="Delete this task and all its subtasks? This can't be undone."
           >
