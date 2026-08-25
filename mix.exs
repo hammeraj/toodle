@@ -19,7 +19,18 @@ defmodule Toodle.MixProject do
       # aren't portable between the two, so each gets its own build/deps
       # directory rather than fighting over `_build`/`deps`.
       deps_path: deps_path(),
-      build_path: build_path()
+      build_path: build_path(),
+      # Desktop.Deployment falls back to generic "ElixirApp" branding
+      # (name derived from the :app atom, but a "The X" long name, default
+      # description/identifier) when this is unset — pin it explicitly
+      # instead of relying on those defaults.
+      desktop_package: [
+        name: "Toodle",
+        name_long: "Toodle",
+        identifier: "com.hammeraj.toodle",
+        description: "A local-first task manager with MCP, Slack, and Linear integration.",
+        icon: "priv/icon.png"
+      ]
     ] ++ releases_config()
   end
 
