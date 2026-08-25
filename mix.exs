@@ -73,13 +73,67 @@ defmodule Toodle.MixProject do
         releases: [
           toodle: [
             applications: [runtime_tools: :permanent, ssl: :permanent],
-            steps: [:assemble, &Desktop.Deployment.generate_installer/1]
+            steps: [
+              :assemble,
+              &add_mcp_entrypoint/1,
+              &Desktop.Deployment.generate_installer/1
+            ]
           ]
         ]
       ]
     else
       []
     end
+  end
+
+  # Drops an `mcp` sibling next to the release's own `bin/toodle` launcher.
+  # desktop_deployment copies the whole `bin/` dir into the packaged app
+  # (Contents/Resources/bin on macOS's :release_first layout, bin\ on
+  # Windows), so this ships in every installer without a separate packaging
+  # step. It lets Claude talk to the *installed app* directly -- no dev
+  # checkout or Elixir install required, just the DMG/installer someone
+  # already has.
+  #
+  # Two things it must do differently from a normal `bin/toodle start`:
+  #   - TOODLE_MCP_ONLY=1 (see config/runtime.exs) skips the web/desktop UI
+  #     entirely and boots straight into stdio MCP mode instead.
+  #   - RELEASE_DISTRIBUTION=none turns off Erlang distribution. Without it,
+  #     this process tries to register the same node name as an
+  #     already-running GUI instance and gets refused outright -- verified
+  #     hands-on (Windows release binary): the GUI app and this MCP-only
+  #     process boot concurrently against the same on-disk SQLite database
+  #     (already WAL-mode for exactly this) without conflict once
+  #     distribution is disabled, but conflict immediately if it isn't.
+  defp add_mcp_entrypoint(release) do
+    bin_dir = Path.join(release.path, "bin")
+
+    case :os.type() do
+      {:win32, _} ->
+        File.write!(Path.join(bin_dir, "toodle_mcp.bat"), """
+        @echo off
+        set TOODLE_MCP_ONLY=1
+        set RELEASE_DISTRIBUTION=none
+        call "%~dp0toodle.bat" start
+        """)
+
+      _ ->
+        path = Path.join(bin_dir, "toodle_mcp")
+
+        File.write!(path, """
+        #!/usr/bin/env bash
+        # Spawned by an MCP client (Claude Desktop/Code) to talk to this
+        # installed app over stdio -- see add_mcp_entrypoint/1 in mix.exs.
+        set -euo pipefail
+        cd "$(dirname "$0")"
+        export TOODLE_MCP_ONLY=1
+        export RELEASE_DISTRIBUTION=none
+        exec ./toodle start
+        """)
+
+        File.chmod!(path, 0o755)
+    end
+
+    release
   end
 
   # Configuration for the OTP application.
