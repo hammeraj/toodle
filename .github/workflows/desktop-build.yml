@@ -112,11 +112,29 @@ jobs:
         with:
           path: artifacts
 
-      # No version tagging yet, so this republishes a single rolling
-      # "latest" release on every push to main rather than piling up
-      # one release per build. Since the tag never changes, the commit SHA
-      # in the release body is the only signal Toodle.Updater has to tell
-      # whether a given build is actually newer than what's installed.
+      - name: Compute short SHA
+        run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
+
+      # Permanent, never-overwritten release for every build -- a rollback
+      # target if a "latest" build turns out to be broken (one shipped for a
+      # while with a macOS launch crash that CI's "did a .dmg get produced"
+      # check couldn't catch). Kept as a prerelease so it doesn't compete
+      # with "Publish latest release" below for the repo's "Latest release"
+      # badge; that rolling pointer is what Toodle.Updater actually reads.
+      - name: Publish versioned release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ env.SHORT_SHA }}
+          name: Build ${{ env.SHORT_SHA }}
+          body: "Commit: ${{ github.sha }}"
+          prerelease: true
+          files: artifacts/**/*
+
+      # No version numbering, so this republishes a single rolling "latest"
+      # release on every push to main rather than piling up one release per
+      # build. Since the tag never changes, the commit SHA in the release
+      # body is the only signal Toodle.Updater has to tell whether a given
+      # build is actually newer than what's installed.
       - name: Publish latest release
         uses: softprops/action-gh-release@v2
         with:
