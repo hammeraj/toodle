@@ -42,7 +42,7 @@ defmodule ToodleWeb.Layouts do
     <div class="flex min-h-screen bg-base-100">
       <aside class="hidden md:flex md:w-64 md:shrink-0 md:flex-col border-r border-base-300 bg-base-200/60 px-4 py-6">
         <a href="/" class="flex items-center gap-2.5 px-2 mb-10">
-          <img src={~p"/images/logo.svg"} width="30" />
+          <img src={~p"/images/toodle_logo.png"} width="30" />
           <span class="text-xl font-bold tracking-tight">Toodle</span>
         </a>
 
@@ -66,7 +66,7 @@ defmodule ToodleWeb.Layouts do
       <div class="flex-1 min-w-0 flex flex-col">
         <header class="flex md:hidden items-center justify-between px-4 py-3 border-b border-base-300 bg-base-200/60">
           <a href="/" class="flex items-center gap-2">
-            <img src={~p"/images/logo.svg"} width="24" />
+            <img src={~p"/images/toodle_logo.png"} width="24" />
             <span class="font-bold">Toodle</span>
           </a>
           <div class="flex items-center gap-1">

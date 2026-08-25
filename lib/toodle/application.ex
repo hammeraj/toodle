@@ -38,9 +38,14 @@ defmodule Toodle.Application do
   end
 
   # A native window wrapping the (loopback-only) endpoint above — see
-  # config/runtime.exs for when this is enabled. `url: &ToodleWeb.Endpoint.url/0`
-  # is a function, not a static string, because the endpoint binds to an
-  # OS-assigned port (`http: [port: 0]`) that isn't known until it's started.
+  # config/runtime.exs for when this is enabled. `url:` is a function, not a
+  # static string, because the endpoint binds to an OS-assigned port
+  # (`http: [port: 0]`) that isn't known until it's started. It must read
+  # the port from `Endpoint.config(:http)` (the real, post-bind value), not
+  # `Endpoint.url/0` -- that builds from the static `:url` config, which has
+  # no way to know the OS-assigned port and previously pointed the window at
+  # a hardcoded port 80 that nothing was listening on (silent white screen:
+  # the window opened, but every request into it was refused).
   defp desktop_children do
     if desktop_enabled?() do
       [
@@ -50,12 +55,21 @@ defmodule Toodle.Application do
            id: Toodle.Window,
            title: "Toodle",
            size: {1280, 800},
-           url: &ToodleWeb.Endpoint.url/0
+           url: &desktop_window_url/0
          ]}
       ]
     else
       []
     end
+  end
+
+  defp desktop_window_url do
+    # Endpoint.config(:http) still reports the static `port: 0` from
+    # runtime.exs -- Bandit/ThousandIsland don't rewrite it after binding.
+    # server_info/1 asks the actual listener socket for the real OS-assigned
+    # port instead.
+    {:ok, {_ip, port}} = ToodleWeb.Endpoint.server_info(:http)
+    "http://localhost:#{port}/"
   end
 
   defp mcp_children do

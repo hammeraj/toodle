@@ -1,8 +1,6 @@
 defmodule Toodle.MixProject do
   use Mix.Project
 
-  @webview_ref "cac66d8aeeddf488d8046db2fd254ac93b5411cb"
-
   def project do
     [
       app: :toodle,
@@ -19,7 +17,24 @@ defmodule Toodle.MixProject do
       # aren't portable between the two, so each gets its own build/deps
       # directory rather than fighting over `_build`/`deps`.
       deps_path: deps_path(),
-      build_path: build_path()
+      build_path: build_path(),
+      # Desktop.Deployment falls back to generic "ElixirApp" branding
+      # (name derived from the :app atom, but a "The X" long name, default
+      # description/identifier) when this is unset — pin it explicitly
+      # instead of relying on those defaults. macos_layout: :release_first
+      # uses the desktop package's wx backend rather than :host_first's
+      # native webview host — elixir-desktop/webview is early/unreleased
+      # (no Hex package, no tags) and unconditionally requests microphone
+      # access on launch for an unrelated demo app's calling feature; wx
+      # is the mature, boring, already-proven-out path.
+      desktop_package: [
+        name: "Toodle",
+        name_long: "Toodle",
+        identifier: "com.hammeraj.toodle",
+        description: "A local-first task manager with MCP, Slack, and Linear integration.",
+        icon: "priv/icon.png",
+        macos_layout: :release_first
+      ]
     ] ++ releases_config()
   end
 
@@ -35,18 +50,6 @@ defmodule Toodle.MixProject do
       {:win32, _} -> true
       {:unix, :darwin} -> true
       _ -> false
-    end
-  end
-
-  # The native webview host (used for :host_first macOS packaging) only
-  # supports macOS so far — Windows support is unimplemented upstream, and
-  # Windows packaging doesn't need it. Pinned to a commit SHA rather than a
-  # branch: this dep isn't published to Hex and has no tagged releases yet.
-  defp webview_deps do
-    if match?({:unix, :darwin}, :os.type()) do
-      [{:desktop_webview, github: "elixir-desktop/webview", ref: @webview_ref}]
-    else
-      []
     end
   end
 
@@ -148,11 +151,7 @@ defmodule Toodle.MixProject do
   defp desktop_deps do
     if desktop_platform?() do
       [
-        # override: true because desktop_webview's own mix.exs declares
-        # `desktop` as a local `path:` dep (for its own monorepo dev setup)
-        # with override: true — our git dep must assert the override too or
-        # Mix treats the two declarations as an unresolved conflict.
-        {:desktop, github: "elixir-desktop/desktop", override: true},
+        {:desktop, github: "elixir-desktop/desktop"},
         {:desktop_deployment, github: "elixir-desktop/deployment"},
         {:exqlite, github: "elixir-desktop/exqlite", override: true},
         # desktop_deployment pulls in httpoison ~> 2.3 -> hackney ~> 1.21,
@@ -160,7 +159,7 @@ defmodule Toodle.MixProject do
         # requires the patched hackney 4.x line — force both up.
         {:httpoison, "~> 3.0", override: true},
         {:hackney, "~> 4.0", override: true}
-      ] ++ webview_deps()
+      ]
     else
       []
     end

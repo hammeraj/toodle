@@ -79,7 +79,11 @@ if config_env() == :prod do
 
   config :toodle, ToodleWeb.Endpoint,
     server: true,
-    url: [host: "localhost", port: 80, scheme: "http"],
+    # No `port:` here -- it's OS-assigned (see `http:` below) and unknowable
+    # at config time. Nothing reads Endpoint.url/0's port; the desktop
+    # window gets the real bound port via Endpoint.server_info/1 instead
+    # (see Toodle.Application.desktop_window_url/0).
+    url: [host: "localhost", scheme: "http"],
     http: [ip: {127, 0, 0, 1}, port: 0],
     secret_key_base: secret_key_base
 end
