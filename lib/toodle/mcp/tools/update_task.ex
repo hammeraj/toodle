@@ -11,7 +11,7 @@ defmodule Toodle.MCP.Tools.UpdateTask do
     field(:task_id, :string, required: true)
     field(:title, :string)
     field(:description, :string)
-    field(:estimate_hours, :float)
+    field(:estimate_hours, {:either, {:integer, :float}})
     field(:start_date, :string)
     field(:due_date, :string)
   end
