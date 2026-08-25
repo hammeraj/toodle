@@ -76,6 +76,7 @@ defmodule Toodle.Updater.Applier do
       backup = app_root <> ".old"
       helper_path = temp_helper_path("sh")
       log_path = temp_helper_path("log")
+      our_pid = System.pid()
 
       script = """
       #!/bin/sh
@@ -88,7 +89,20 @@ defmodule Toodle.Updater.Applier do
       set -e
       exec >>"#{log_path}" 2>&1
       echo "$(date) starting update apply: #{new_app} -> #{app_root}"
-      sleep 3
+      # Wait for the quitting instance to actually exit (and release its
+      # fixed listen port) instead of betting on a fixed delay. A too-short
+      # guess here lets the relaunch below race a still-dying old process:
+      # the new instance loses the port, crashes immediately on bind, and
+      # (since the release runs -heart) gets stuck in a restart loop
+      # against the old process that's still alive and holding it --
+      # reproduced hands-on by launching two instances concurrently, though
+      # not confirmed as the exact cause of the original failed update this
+      # was written in response to. Capped at 10s and proceeds regardless
+      # so a wedged old process can't block the update forever.
+      for _ in $(seq 1 50); do
+        kill -0 #{our_pid} 2>/dev/null || break
+        sleep 0.2
+      done
       rm -rf "#{staged}"
       cp -R "#{new_app}" "#{staged}"
       rm -rf "#{backup}"
