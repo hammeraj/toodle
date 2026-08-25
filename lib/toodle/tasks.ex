@@ -10,6 +10,24 @@ defmodule Toodle.Tasks do
   alias Toodle.Repo
   alias Toodle.Tasks.{Task, TaskEvent, TimeEntry, StatusMachine}
 
+  @topic "tasks"
+
+  @doc """
+  Subscribes the calling process to task changes — every create, update,
+  status transition, and delete, from any source (LiveView or MCP tool
+  calls, since both flow through this context). LiveViews use this so
+  tasks created by an MCP client show up without a page refresh.
+  """
+  def subscribe, do: Phoenix.PubSub.subscribe(Toodle.PubSub, @topic)
+
+  @doc false
+  def broadcast_change({:ok, _} = result) do
+    Phoenix.PubSub.broadcast(Toodle.PubSub, @topic, :tasks_changed)
+    result
+  end
+
+  def broadcast_change(result), do: result
+
   ## CRUD
 
   def list_tasks(opts \\ []) do
@@ -75,6 +93,7 @@ defmodule Toodle.Tasks do
     |> Task.changeset(stringify_keys(attrs))
     |> validate_parent_not_nested()
     |> Repo.insert()
+    |> broadcast_change()
   end
 
   @doc """
@@ -87,7 +106,7 @@ defmodule Toodle.Tasks do
     |> Repo.insert()
     |> case do
       {:ok, task} ->
-        {:ok, task}
+        broadcast_change({:ok, task})
 
       {:error, %Ecto.Changeset{errors: errors} = changeset} ->
         if Keyword.has_key?(errors, :slack_message_ts),
@@ -112,10 +131,11 @@ defmodule Toodle.Tasks do
     |> validate_parent_not_nested()
     |> validate_no_grandchildren()
     |> Repo.update()
+    |> broadcast_change()
   end
 
   def delete_task(%Task{} = task) do
-    Repo.delete(task)
+    Repo.delete(task) |> broadcast_change()
   end
 
   @doc "Archives a task, hiding it from the default task list. Only makes sense for completed tasks."
@@ -123,12 +143,14 @@ defmodule Toodle.Tasks do
     task
     |> Task.archive_changeset(%{archived_at: DateTime.utc_now() |> DateTime.truncate(:second)})
     |> Repo.update()
+    |> broadcast_change()
   end
 
   def unarchive_task(%Task{} = task) do
     task
     |> Task.archive_changeset(%{archived_at: nil})
     |> Repo.update()
+    |> broadcast_change()
   end
 
   def change_task(%Task{} = task, attrs \\ %{}) do
@@ -221,6 +243,7 @@ defmodule Toodle.Tasks do
       {:ok, %{task: task}} -> {:ok, task}
       {:error, _step, reason, _changes} -> {:error, reason}
     end
+    |> broadcast_change()
   end
 
   defp task_status_changeset(task, new_status, now) do

@@ -221,7 +221,11 @@ defmodule ToodleWeb.TaskLive.Show do
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    if connected?(socket), do: Process.send_after(self(), :tick, 1_000)
+    if connected?(socket) do
+      Process.send_after(self(), :tick, 1_000)
+      Tasks.subscribe()
+    end
+
     {:ok, load_task(socket, id)}
   end
 
@@ -316,6 +320,18 @@ defmodule ToodleWeb.TaskLive.Show do
       {:noreply, assign(socket, :elapsed, Tasks.total_active_seconds(task.id))}
     else
       {:noreply, socket}
+    end
+  end
+
+  def handle_info(:tasks_changed, socket) do
+    try do
+      {:noreply, load_task(socket, socket.assigns.task.id)}
+    rescue
+      Ecto.NoResultsError ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "This task was deleted elsewhere")
+         |> push_navigate(to: ~p"/")}
     end
   end
 
