@@ -73,13 +73,32 @@ defmodule Toodle.MixProject do
         releases: [
           toodle: [
             applications: [runtime_tools: :permanent, ssl: :permanent],
-            steps: [:assemble, &Desktop.Deployment.generate_installer/1]
+            steps: [:assemble, &stamp_build_sha/1, &Desktop.Deployment.generate_installer/1]
           ]
         ]
       ]
     else
       []
     end
+  end
+
+  # The CI-published GitHub release reuses a single rolling "latest" tag on
+  # every build (see .github/workflows/desktop-build.yml) rather than
+  # distinct version tags, so there's no version number for Toodle.Updater
+  # to compare against -- only a commit SHA, embedded in that release's
+  # body. This stamps the *local* build's own SHA into the release so it has
+  # something to compare that against at runtime (Toodle.Updater.local_sha/0).
+  defp stamp_build_sha(release) do
+    sha =
+      case System.cmd("git", ["rev-parse", "HEAD"], stderr_to_stdout: true) do
+        {sha, 0} -> String.trim(sha)
+        _ -> "unknown"
+      end
+
+    priv_dir = Path.join([release.path, "lib", "toodle-#{release.version}", "priv"])
+    File.write!(Path.join(priv_dir, "build_sha.txt"), sha)
+
+    release
   end
 
   # Configuration for the OTP application.

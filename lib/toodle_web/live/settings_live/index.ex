@@ -1,7 +1,7 @@
 defmodule ToodleWeb.SettingsLive.Index do
   use ToodleWeb, :live_view
 
-  alias Toodle.{Linear, Slack}
+  alias Toodle.{Linear, Slack, Updater}
 
   @impl true
   def render(assigns) do
@@ -95,6 +95,50 @@ defmodule ToodleWeb.SettingsLive.Index do
             <.icon name="hero-arrow-path" class="size-4" /> Check now
           </button>
         </section>
+
+        <section class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
+          <h3 class="font-semibold">Software Update</h3>
+          <p class="text-sm text-base-content/70">
+            Checks the latest build published on GitHub. Updating downloads and installs it over
+            this app, then restarts.
+          </p>
+          <p class="text-sm text-base-content/70">
+            Running build: <code class="text-xs">{@build_sha || "development build"}</code>
+          </p>
+
+          <p :if={@update_status == :up_to_date}>
+            <span class="badge badge-success badge-soft">Up to date</span>
+          </p>
+          <p :if={match?({:available, _}, @update_status)}>
+            <span class="badge badge-warning badge-soft">Update available</span>
+          </p>
+          <p :if={match?({:error, _}, @update_status)} class="text-sm text-error">
+            {elem(@update_status, 1)}
+          </p>
+
+          <div class="flex gap-2">
+            <button
+              type="button"
+              phx-click="check_for_update"
+              class="btn btn-sm btn-soft"
+              disabled={@update_status == :checking}
+            >
+              <.icon name="hero-arrow-path" class="size-4" />
+              {if @update_status == :checking, do: "Checking…", else: "Check for updates"}
+            </button>
+            <button
+              :if={match?({:available, _}, @update_status) or @update_status == :applying}
+              type="button"
+              phx-click="apply_update"
+              class="btn btn-sm btn-primary"
+              disabled={@update_status == :applying}
+            >
+              {if @update_status == :applying,
+                do: "Downloading…",
+                else: "Update & restart"}
+            </button>
+          </div>
+        </section>
       </div>
     </Layouts.app>
     """
@@ -107,8 +151,13 @@ defmodule ToodleWeb.SettingsLive.Index do
      |> assign(:page_title, "Settings")
      |> assign(:linear_configured?, Linear.api_key_configured?())
      |> assign(:slack_configured?, Slack.configured?())
-     |> assign(:slack_reaction_emoji, Slack.reaction_emoji())}
+     |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
+     |> assign(:build_sha, short_sha(Updater.local_sha()))
+     |> assign(:update_status, nil)}
   end
+
+  defp short_sha(nil), do: nil
+  defp short_sha(sha), do: String.slice(sha, 0, 7)
 
   @impl true
   def handle_event("save_linear_key", %{"api_key" => ""}, socket) do
@@ -158,5 +207,50 @@ defmodule ToodleWeb.SettingsLive.Index do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Slack check failed: #{reason}")}
     end
+  end
+
+  def handle_event("check_for_update", _params, socket) do
+    case Updater.check() do
+      {:ok, :up_to_date} ->
+        {:noreply, assign(socket, :update_status, :up_to_date)}
+
+      {:ok, {:update_available, info}} ->
+        {:noreply, assign(socket, :update_status, {:available, info})}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, :update_status, {:error, to_string(reason)})}
+    end
+  end
+
+  def handle_event("apply_update", _params, socket) do
+    case socket.assigns.update_status do
+      {:available, %{asset: asset}} ->
+        live_view_pid = self()
+
+        Task.start(fn ->
+          case Updater.download_and_apply(asset) do
+            # Success quits the app partway through -- nothing left to
+            # report back to, this branch only reachable on failure.
+            {:error, reason} ->
+              send(live_view_pid, {:update_failed, reason})
+
+            :ok ->
+              :ok
+          end
+        end)
+
+        {:noreply, assign(socket, :update_status, :applying)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_info({:update_failed, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:update_status, {:error, to_string(reason)})
+     |> put_flash(:error, "Update failed: #{inspect(reason)}")}
   end
 end

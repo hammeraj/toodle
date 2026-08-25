@@ -95,11 +95,14 @@ jobs:
 
       # No version tagging yet, so this republishes a single rolling
       # "latest" release on every push to main rather than piling up
-      # one release per build.
+      # one release per build. Since the tag never changes, the commit SHA
+      # in the release body is the only signal Toodle.Updater has to tell
+      # whether a given build is actually newer than what's installed.
       - name: Publish latest release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Latest build
+          body: "Commit: ${{ github.sha }}"
           prerelease: true
           files: artifacts/**/*
