@@ -78,6 +78,7 @@ defmodule Toodle.MixProject do
               &make_release_writable/1,
               &disable_distribution/1,
               &stamp_build_sha/1,
+              &bundle_ollama/1,
               &Desktop.Deployment.generate_installer/1,
               &patch_macos_bundle/1
             ]
@@ -350,6 +351,51 @@ defmodule Toodle.MixProject do
     File.write!(Path.join(priv_dir, "build_sha.txt"), sha)
 
     release
+  end
+
+  # Embeds a bundled Ollama runtime + model (see Toodle.Llm.OllamaServer)
+  # into the release's priv dir, macOS-only, and only when
+  # TOODLE_OLLAMA_BUNDLE_DIR points at a pre-staged `bin/` + `models/`
+  # directory (see .github/workflows/desktop-build.yml's "Fetch bundled
+  # Ollama runtime + model" step -- fetching and stripping the ~1GB
+  # runtime+model here on every local `mix release` would be both slow and
+  # unwanted for anyone not testing this specifically). A no-op release
+  # step otherwise, same convention as make_release_writable/1 and
+  # disable_distribution/1 above.
+  #
+  # This step runs *before* Desktop.Deployment.generate_installer/1
+  # rather than patching the finished .app after the fact (contrast with
+  # patch_macos_bundle/1 below): anything already sitting in
+  # lib/toodle-<vsn>/priv/ at that point gets carried into the .app and
+  # ad-hoc/Developer-ID signed by that same pass, confirmed hands-on
+  # against another priv/ NIF (exqlite's sqlite3_nif.so) in the existing
+  # baseline build -- no separate re-sign/re-dmg dance needed here.
+  defp bundle_ollama(release) do
+    case {:os.type(), System.get_env("TOODLE_OLLAMA_BUNDLE_DIR")} do
+      {{:unix, :darwin}, dir} when is_binary(dir) and dir != "" -> do_bundle_ollama(release, dir)
+      _ -> :ok
+    end
+
+    release
+  end
+
+  defp do_bundle_ollama(release, source_dir) do
+    dest = Path.join([release.path, "lib", "toodle-#{release.version}", "priv", "ollama"])
+    File.rm_rf!(dest)
+    File.mkdir_p!(dest)
+
+    File.cp_r!(Path.join(source_dir, "bin"), Path.join(dest, "bin"))
+    File.cp_r!(Path.join(source_dir, "models"), Path.join(dest, "models"))
+
+    # cp_r! preserves source file modes, but be explicit that the entry
+    # points stay executable regardless of how the bundle dir was
+    # staged/cached upstream.
+    for bin <- ["ollama", "llama-server", "llama-quantize"] do
+      path = Path.join([dest, "bin", bin])
+      if File.exists?(path), do: File.chmod!(path, 0o755)
+    end
+
+    IO.puts("Bundled Ollama runtime + model from #{source_dir} into #{dest}")
   end
 
   # Configuration for the OTP application.

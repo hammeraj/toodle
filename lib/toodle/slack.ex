@@ -16,6 +16,7 @@ defmodule Toodle.Slack do
   """
 
   alias Toodle.{Projects, Settings, Tasks}
+  alias Toodle.Inbox.Cleanup
   alias Toodle.Slack.Client
 
   @token_key "slack_user_token"
@@ -156,7 +157,7 @@ defmodule Toodle.Slack do
 
     attrs = %{
       project_id: inbox.id,
-      title: title_from(text),
+      title: Cleanup.clean_title(text, title_from(text)),
       description: text,
       slack_channel_id: channel_id,
       slack_message_ts: ts,
