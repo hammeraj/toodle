@@ -27,6 +27,7 @@ defmodule Toodle.Application do
       {Phoenix.PubSub, name: Toodle.PubSub},
       ToodleWeb.Endpoint,
       Toodle.Slack.Poller,
+      Toodle.Llm.OllamaServer,
       # Mounted into the router at /mcp (see ToodleWeb.Router) rather than
       # run as a separate process -- same Repo connection pool as the
       # LiveView UI, always available whenever this app is running, nothing

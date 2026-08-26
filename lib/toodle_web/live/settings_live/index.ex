@@ -2,6 +2,7 @@ defmodule ToodleWeb.SettingsLive.Index do
   use ToodleWeb, :live_view
 
   alias Toodle.{Linear, Slack, Updater}
+  alias Toodle.Inbox.Cleanup
 
   @impl true
   def render(assigns) do
@@ -137,6 +138,50 @@ defmodule ToodleWeb.SettingsLive.Index do
         </section>
 
         <section class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
+          <h3 class="font-semibold">Inbox Cleanup</h3>
+          <p :if={@inbox_cleanup_bundled?} class="text-sm text-base-content/70">
+            Rewrites messy Slack messages into clean task titles using a small open-source
+            language model bundled with Toodle — runs fully offline, nothing to install.
+            Falls back to the raw message text automatically if the model can't produce a
+            clean title for some reason.
+          </p>
+          <p :if={!@inbox_cleanup_bundled?} class="text-sm text-base-content/70">
+            Rewrites messy Slack messages into clean task titles using a small open-source
+            language model running locally via
+            <a
+              href="https://ollama.com"
+              target="_blank"
+              class="link"
+            >Ollama</a>
+            — nothing leaves your machine. This build doesn't bundle one, so install Ollama
+            yourself, run <code class="text-xs">ollama pull {@inbox_cleanup_model}</code>
+            (or whichever model you set below), then turn this on. Falls back to the raw
+            message text automatically whenever Ollama isn't reachable.
+          </p>
+
+          <label class="label cursor-pointer w-fit gap-2">
+            <input
+              type="checkbox"
+              class="toggle toggle-primary"
+              checked={@inbox_cleanup_enabled?}
+              phx-click="toggle_inbox_cleanup"
+            />
+            <span>{if @inbox_cleanup_enabled?, do: "Enabled", else: "Disabled"}</span>
+          </label>
+
+          <.form for={%{}} phx-submit="save_inbox_cleanup_model" class="flex gap-2">
+            <input
+              type="text"
+              name="model"
+              value={@inbox_cleanup_model}
+              placeholder="qwen2.5:1.5b"
+              class="input input-bordered flex-1"
+            />
+            <button type="submit" class="btn btn-primary">Save</button>
+          </.form>
+        </section>
+
+        <section class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
           <h3 class="font-semibold">Software Update</h3>
           <p class="text-sm text-base-content/70">
             Checks the latest build published on GitHub. Updating downloads and installs it over
@@ -192,6 +237,9 @@ defmodule ToodleWeb.SettingsLive.Index do
      |> assign(:linear_configured?, Linear.api_key_configured?())
      |> assign(:slack_configured?, Slack.configured?())
      |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
+     |> assign(:inbox_cleanup_enabled?, Cleanup.enabled?())
+     |> assign(:inbox_cleanup_model, Cleanup.model())
+     |> assign(:inbox_cleanup_bundled?, Toodle.Llm.OllamaServer.bundled?())
      |> assign(:build_sha, short_sha(Updater.local_sha()))
      |> assign(:update_status, nil)}
   end
@@ -236,6 +284,17 @@ defmodule ToodleWeb.SettingsLive.Index do
          |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
          |> put_flash(:info, "Slack settings saved")}
     end
+  end
+
+  def handle_event("toggle_inbox_cleanup", _params, socket) do
+    enabled? = !socket.assigns.inbox_cleanup_enabled?
+    Cleanup.put_enabled(enabled?)
+    {:noreply, assign(socket, :inbox_cleanup_enabled?, enabled?)}
+  end
+
+  def handle_event("save_inbox_cleanup_model", %{"model" => model}, socket) do
+    Cleanup.put_model(model)
+    {:noreply, assign(socket, :inbox_cleanup_model, Cleanup.model())}
   end
 
   def handle_event("poll_now", _params, socket) do
