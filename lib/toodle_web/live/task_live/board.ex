@@ -64,8 +64,8 @@ defmodule ToodleWeb.TaskLive.Board do
             <tr>
               <th>Title</th>
               <th>
-                <.form for={%{}} phx-change="filter_project" class="inline-block">
-                  <select name="project_id" class="select select-ghost select-xs font-semibold">
+                <.form for={%{}} phx-change="filter_project" class="block w-full">
+                  <select name="project_id" class="select select-ghost select-xs font-semibold w-full">
                     <option value="" selected={@project_id == nil}>Project</option>
                     <option
                       :for={project <- @projects}
@@ -82,9 +82,14 @@ defmodule ToodleWeb.TaskLive.Board do
                   type="button"
                   phx-click="sort_by"
                   phx-value-sort_by="status"
-                  class="inline-flex items-center gap-0.5"
+                  class="inline-flex items-center gap-1.5"
                 >
-                  Status <span :if={@sort_by == :status} class="opacity-70">⌄</span>
+                  Status
+                  <.icon
+                    :if={@sort_by == :status}
+                    name="hero-chevron-down"
+                    class="size-3 opacity-70"
+                  />
                 </button>
               </th>
               <th class="whitespace-nowrap">
@@ -92,9 +97,14 @@ defmodule ToodleWeb.TaskLive.Board do
                   type="button"
                   phx-click="sort_by"
                   phx-value-sort_by="due_date"
-                  class="inline-flex items-center gap-0.5"
+                  class="inline-flex items-center gap-1.5"
                 >
-                  Due <span :if={@sort_by == :due_date} class="opacity-70">⌄</span>
+                  Due
+                  <.icon
+                    :if={@sort_by == :due_date}
+                    name="hero-chevron-down"
+                    class="size-3 opacity-70"
+                  />
                 </button>
               </th>
               <th class="whitespace-nowrap">Est.</th>
@@ -129,10 +139,8 @@ defmodule ToodleWeb.TaskLive.Board do
               </td>
               <td class="whitespace-nowrap text-sm">{format_date(task.due_date)}</td>
               <td class="whitespace-nowrap text-sm">{format_estimate(task.estimate_hours)}</td>
-              <td class="whitespace-nowrap">
-                <span :if={task.status == :in_progress} class="font-mono text-xs">
-                  {format_duration(@elapsed[task.id] || 0)}
-                </span>
+              <td class="whitespace-nowrap font-mono text-xs">
+                {format_duration(@elapsed[task.id] || 0)}
               </td>
               <td>
                 <div class="flex flex-wrap gap-1 justify-end">
@@ -241,7 +249,12 @@ defmodule ToodleWeb.TaskLive.Board do
   @impl true
   def handle_info(:tick, socket) do
     Process.send_after(self(), :tick, 1_000)
-    {:noreply, assign(socket, :elapsed, elapsed_map(socket.assigns.tasks))}
+    # Only re-query in-progress tasks every tick — their elapsed time is the
+    # only thing actually changing second to second. Everything else in
+    # @elapsed was already computed (accurately, and just as cheaply) by
+    # load_tasks/2, and merging leaves it untouched.
+    active = Enum.filter(socket.assigns.tasks, &(&1.status == :in_progress))
+    {:noreply, update(socket, :elapsed, &Map.merge(&1, elapsed_map(active)))}
   end
 
   def handle_info(:tasks_changed, socket) do
@@ -282,11 +295,10 @@ defmodule ToodleWeb.TaskLive.Board do
   defp due_date_sort_key(%{due_date: nil}), do: {1, {9999, 12, 31}}
   defp due_date_sort_key(%{due_date: due_date}), do: {0, Date.to_erl(due_date)}
 
-  defp elapsed_map(tasks) do
-    tasks
-    |> Enum.filter(&(&1.status == :in_progress))
-    |> Map.new(&{&1.id, Tasks.total_active_seconds(&1.id)})
-  end
+  # Called both for the full page (any status — a completed or paused task
+  # still has an accumulated total worth showing) and, at tick time, for
+  # just the in-progress subset (see handle_info(:tick, _)).
+  defp elapsed_map(tasks), do: Map.new(tasks, &{&1.id, Tasks.total_active_seconds(&1.id)})
 
   defp quick_transitions(status) do
     status
@@ -305,6 +317,8 @@ defmodule ToodleWeb.TaskLive.Board do
     do: "#{trunc(hours)}h"
 
   defp format_estimate(hours), do: "#{hours}h"
+
+  defp format_duration(0), do: "—"
 
   defp format_duration(seconds) do
     h = div(seconds, 3600)

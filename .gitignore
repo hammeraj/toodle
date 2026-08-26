@@ -60,6 +60,9 @@ npm-debug.log
 /priv/static/robots.txt.gz
 /priv/static/images/logo-*.svg
 /priv/static/images/*.gz
+/priv/static/fonts/InterVariable-*.woff2
+/priv/static/fonts/InterVariable-LICENSE-*.txt
+/priv/static/fonts/*.gz
 
 # OS cruft
 .DS_Store
