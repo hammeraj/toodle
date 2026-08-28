@@ -20,7 +20,7 @@ defmodule ToodleWeb.TaskLive.Board do
   @status_badge_class %{
     not_started: "badge-ghost",
     in_progress: "badge-info",
-    paused: "badge-neutral",
+    paused: "badge-secondary",
     blocked: "badge-error",
     interrupted: "badge-warning",
     complete: "badge-success"
@@ -33,20 +33,9 @@ defmodule ToodleWeb.TaskLive.Board do
       <.header>
         Board
         <:actions>
-          <div class="flex flex-wrap items-center gap-2">
-            <.button variant="primary" navigate={~p"/tasks/new"}>
-              <.icon name="hero-plus" /> New Task
-            </.button>
-            <label class="label cursor-pointer gap-2">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm"
-                checked={@show_archived}
-                phx-click="toggle_archived"
-              />
-              <span class="label-text">Show archived</span>
-            </label>
-          </div>
+          <.button variant="primary" navigate={~p"/tasks/new"}>
+            <.icon name="hero-plus" /> New Task
+          </.button>
         </:actions>
       </.header>
 
@@ -65,7 +54,11 @@ defmodule ToodleWeb.TaskLive.Board do
               <th>Title</th>
               <th>
                 <.form for={%{}} phx-change="filter_project" class="block w-full">
-                  <select name="project_id" class="select select-ghost select-xs font-semibold w-full">
+                  <select
+                    name="project_id"
+                    class="select select-ghost select-xs font-semibold w-full"
+                    style="font-size: 0.875rem;"
+                  >
                     <option value="" selected={@project_id == nil}>Project</option>
                     <option
                       :for={project <- @projects}
@@ -200,13 +193,17 @@ defmodule ToodleWeb.TaskLive.Board do
     {:ok,
      socket
      |> assign(:page_title, "Board")
-     |> assign(:project_id, nil)
-     |> assign(:show_archived, false)
-     |> assign(:sort_by, :status)
+     |> assign(:show_archived, Tasks.show_archived?())
+     |> assign(:sort_by, :due_date)
      |> assign(:page, 1)
      |> assign(:projects, Projects.list_projects())
-     |> assign(:status_badge_class, @status_badge_class)
-     |> load_tasks(reset_page?: false)}
+     |> assign(:status_badge_class, @status_badge_class)}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply,
+     socket |> assign(:project_id, params["project_id"]) |> load_tasks(reset_page?: true)}
   end
 
   @impl true
@@ -216,13 +213,6 @@ defmodule ToodleWeb.TaskLive.Board do
 
   def handle_event("filter_project", %{"project_id" => project_id}, socket) do
     {:noreply, socket |> assign(:project_id, project_id) |> load_tasks(reset_page?: true)}
-  end
-
-  def handle_event("toggle_archived", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_archived, !socket.assigns.show_archived)
-     |> load_tasks(reset_page?: true)}
   end
 
   def handle_event("sort_by", %{"sort_by" => sort_by}, socket) do
@@ -283,11 +273,19 @@ defmodule ToodleWeb.TaskLive.Board do
     |> assign(:elapsed, elapsed_map(tasks))
   end
 
-  defp sort_tasks(tasks, :due_date), do: Enum.sort_by(tasks, &due_date_sort_key/1)
+  defp sort_tasks(tasks, :due_date) do
+    Enum.sort_by(tasks, &{status_bucket(&1.status), due_date_sort_key(&1)})
+  end
 
   defp sort_tasks(tasks, :status) do
     Enum.sort_by(tasks, &{Map.fetch!(@status_rank, &1.status), &1.position, &1.inserted_at})
   end
+
+  # In-progress work always floats to the top and completed tasks always sink
+  # to the bottom, no matter which column the list is sorted by.
+  defp status_bucket(:in_progress), do: 0
+  defp status_bucket(:complete), do: 2
+  defp status_bucket(_other), do: 1
 
   # Chronological, not Elixir's default struct term order (which would sort
   # %Date{} by field name, i.e. day before year) — tasks without a due date

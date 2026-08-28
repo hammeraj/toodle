@@ -39,6 +39,11 @@ defmodule ToodleWeb.ProjectLive.Index do
             <span class="text-base-content/70">{project.description}</span>
           </:col>
           <:action :let={project}>
+            <.link navigate={~p"/?project_id=#{project.id}"} class="btn btn-xs btn-ghost">
+              View Board
+            </.link>
+          </:action>
+          <:action :let={project}>
             <.link navigate={~p"/projects/#{project}/edit"} class="btn btn-xs btn-ghost">
               Edit
             </.link>
