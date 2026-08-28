@@ -10,6 +10,8 @@ defmodule Toodle.Llm.Ollama do
   @default_host "http://localhost:11434"
   @default_model "qwen2.5:1.5b"
 
+  require Logger
+
   alias Toodle.Llm.OllamaServer
 
   def default_model, do: @default_model
@@ -36,15 +38,25 @@ defmodule Toodle.Llm.Ollama do
     |> case do
       {:ok, %Req.Response{status: 200, body: %{"response" => response}}}
       when is_binary(response) ->
-        Jason.decode(response)
+        case Jason.decode(response) do
+          {:ok, decoded} ->
+            {:ok, decoded}
+
+          {:error, reason} ->
+            log_error("returned non-JSON response: #{inspect(response)}")
+            {:error, reason}
+        end
 
       {:ok, %Req.Response{status: 200, body: body}} ->
+        log_error("response missing \"response\" field: #{inspect(body)}")
         {:error, "Ollama response missing \"response\" field: #{inspect(body)}"}
 
       {:ok, %Req.Response{status: status}} ->
+        log_error("returned HTTP #{status}")
         {:error, "Ollama returned HTTP #{status}"}
 
       {:error, exception} ->
+        log_error(Exception.message(exception))
         {:error, Exception.message(exception)}
     end
   end
@@ -69,9 +81,16 @@ defmodule Toodle.Llm.Ollama do
     request(receive_timeout: :infinity)
     |> Req.post(url: "/api/pull", json: %{model: model, stream: false})
     |> case do
-      {:ok, %Req.Response{status: 200}} -> :ok
-      {:ok, %Req.Response{status: status}} -> {:error, "Ollama returned HTTP #{status}"}
-      {:error, exception} -> {:error, Exception.message(exception)}
+      {:ok, %Req.Response{status: 200}} ->
+        :ok
+
+      {:ok, %Req.Response{status: status}} ->
+        log_error("pull of #{model} returned HTTP #{status}")
+        {:error, "Ollama returned HTTP #{status}"}
+
+      {:error, exception} ->
+        log_error("pull of #{model} failed: #{Exception.message(exception)}")
+        {:error, Exception.message(exception)}
     end
   end
 
@@ -91,12 +110,15 @@ defmodule Toodle.Llm.Ollama do
         {:ok, Enum.map(models, & &1["name"])}
 
       {:ok, %Req.Response{status: 200, body: body}} ->
+        log_error("response missing \"models\" field: #{inspect(body)}")
         {:error, "Ollama response missing \"models\" field: #{inspect(body)}"}
 
       {:ok, %Req.Response{status: status}} ->
+        log_error("returned HTTP #{status}")
         {:error, "Ollama returned HTTP #{status}"}
 
       {:error, exception} ->
+        log_error(Exception.message(exception))
         {:error, Exception.message(exception)}
     end
   end
@@ -126,4 +148,10 @@ defmodule Toodle.Llm.Ollama do
   end
 
   defp config, do: Application.get_env(:toodle, __MODULE__, [])
+
+  # Every caller here treats an Ollama failure as best-effort (fall back and
+  # move on), so without this the only trace of a broken local model setup
+  # would be silence -- a title that just never changes, with no way to tell
+  # why.
+  defp log_error(message), do: Logger.warning("Ollama: #{message}")
 end
