@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# See desktop-build.yml's concurrency block -- same duplicate-delivery issue.
+# This job doesn't publish anything, so canceling a stale/duplicate run in
+# favor of the new one is safe (and saves CI time) rather than just queuing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest

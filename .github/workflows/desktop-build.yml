@@ -5,6 +5,17 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# GitHub has been observed delivering a single push-to-main twice in a row
+# (seconds apart, same commit) -- without this, that means two of these
+# builds run concurrently and race to publish/overwrite the same rolling
+# "latest" release (see the release step below). Deliberately no
+# cancel-in-progress: this job publishes partway through, and canceling a
+# run that's already mid-publish could leave the release half-updated;
+# queuing the duplicate to run (redundantly, but safely) after the first
+# completes is the worse-but-safe option.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
 jobs:
   build:
     strategy:
