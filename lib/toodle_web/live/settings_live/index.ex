@@ -181,9 +181,30 @@ defmodule ToodleWeb.SettingsLive.Index do
             <span :if={@ollama_model_ready?} class="badge badge-success badge-soft badge-sm">
               Model ready
             </span>
-            <span :if={!@ollama_model_ready?} class="badge badge-ghost badge-sm">
+            <span
+              :if={!@ollama_model_ready? && @ollama_pulling?}
+              class="badge badge-info badge-soft badge-sm"
+            >
+              Downloading model… (~1GB, one time)
+            </span>
+            <span
+              :if={!@ollama_model_ready? && !@ollama_pulling? && !@ollama_pull_error}
+              class="badge badge-ghost badge-sm"
+            >
               Model downloads on first use (~1GB, one time)
             </span>
+            <span
+              :if={!@ollama_model_ready? && !@ollama_pulling? && @ollama_pull_error}
+              class="badge badge-error badge-soft badge-sm"
+            >
+              Model download failed
+            </span>
+          </p>
+          <p
+            :if={!@ollama_model_ready? && !@ollama_pulling? && @ollama_pull_error}
+            class="text-sm text-error"
+          >
+            Couldn't download the model: {@ollama_pull_error}
           </p>
 
           <div class="space-y-1.5">
@@ -333,24 +354,44 @@ defmodule ToodleWeb.SettingsLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     bundled? = OllamaServer.bundled?()
+    enabled? = Cleanup.enabled?()
+    auto_project? = Cleanup.auto_project_enabled?()
+    auto_metadata? = Cleanup.auto_metadata_enabled?()
+    model = Cleanup.model()
+    ready? = bundled? && Ollama.model_present?(model)
 
-    {:ok,
-     socket
-     |> assign(:page_title, "Settings")
-     |> assign(:board_show_archived?, Tasks.show_archived?())
-     |> assign(:linear_configured?, Linear.api_key_configured?())
-     |> assign(:slack_configured?, Slack.configured?())
-     |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
-     |> assign(:inbox_cleanup_enabled?, Cleanup.enabled?())
-     |> assign(:inbox_cleanup_auto_project?, Cleanup.auto_project_enabled?())
-     |> assign(:inbox_cleanup_auto_metadata?, Cleanup.auto_metadata_enabled?())
-     |> assign(:inbox_cleanup_model, Cleanup.model())
-     |> assign(:inbox_cleanup_bundled?, bundled?)
-     |> assign(:ollama_model_ready?, bundled? && Ollama.model_present?(Cleanup.model()))
-     |> assign(:preview_text, "")
-     |> assign(:preview_result, nil)
-     |> assign(:build_sha, short_sha(Updater.local_sha()))
-     |> assign(:update_status, nil)}
+    socket =
+      socket
+      |> assign(:page_title, "Settings")
+      |> assign(:board_show_archived?, Tasks.show_archived?())
+      |> assign(:linear_configured?, Linear.api_key_configured?())
+      |> assign(:slack_configured?, Slack.configured?())
+      |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
+      |> assign(:inbox_cleanup_enabled?, enabled?)
+      |> assign(:inbox_cleanup_auto_project?, auto_project?)
+      |> assign(:inbox_cleanup_auto_metadata?, auto_metadata?)
+      |> assign(:inbox_cleanup_model, model)
+      |> assign(:inbox_cleanup_bundled?, bundled?)
+      |> assign(:ollama_model_ready?, ready?)
+      |> assign(:ollama_pulling?, false)
+      |> assign(:ollama_pull_error, nil)
+      |> assign(:preview_text, "")
+      |> assign(:preview_result, nil)
+      |> assign(:build_sha, short_sha(Updater.local_sha()))
+      |> assign(:update_status, nil)
+
+    # A feature left on from a previous session whose pull never finished
+    # (interrupted quit, prior failure) would otherwise sit forever with no
+    # feedback until the user happens to re-save the model field — retry it
+    # here so opening Settings is enough to pick it back up.
+    socket =
+      if !ready? and (enabled? or auto_project? or auto_metadata?) do
+        maybe_pull_model(socket)
+      else
+        socket
+      end
+
+    {:ok, socket}
   end
 
   defp short_sha(nil), do: nil
@@ -524,20 +565,33 @@ defmodule ToodleWeb.SettingsLive.Index do
       live_view_pid = self()
 
       Task.start(fn ->
-        Ollama.ensure_model(model)
-        send(live_view_pid, {:model_pull_finished, model})
+        result = Ollama.ensure_model(model)
+        send(live_view_pid, {:model_pull_finished, model, result})
       end)
-    end
 
-    socket
+      socket |> assign(:ollama_pulling?, true) |> assign(:ollama_pull_error, nil)
+    else
+      socket
+    end
   end
 
   @impl true
-  def handle_info({:model_pull_finished, model}, socket) do
+  def handle_info({:model_pull_finished, model, result}, socket) do
     # Only trust this against whatever model is still configured by the
     # time the pull lands — the user may have changed it again mid-pull.
     if model == socket.assigns.inbox_cleanup_model do
-      {:noreply, assign(socket, :ollama_model_ready?, Ollama.model_present?(model))}
+      socket =
+        socket
+        |> assign(:ollama_pulling?, false)
+        |> assign(:ollama_model_ready?, Ollama.model_present?(model))
+
+      socket =
+        case result do
+          :ok -> assign(socket, :ollama_pull_error, nil)
+          {:error, reason} -> assign(socket, :ollama_pull_error, reason)
+        end
+
+      {:noreply, socket}
     else
       {:noreply, socket}
     end
