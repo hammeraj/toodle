@@ -51,6 +51,7 @@ defmodule Toodle.Llm.OllamaServer do
       bin ->
         Logger.info("Starting bundled Ollama server from #{bin}")
         port = open_port(bin)
+        await_ready()
         {:ok, %{port: port}}
     end
   end
@@ -119,6 +120,37 @@ defmodule Toodle.Llm.OllamaServer do
         ]
       ]
     )
+  end
+
+  @ready_check_interval_ms 100
+  @ready_check_attempts 50
+
+  # Spawning the subprocess and it actually binding @port aren't the same
+  # moment -- without this, any caller that races to talk to it right after
+  # app launch (Settings mounting and immediately checking/pulling the
+  # model, for instance) can hit a plain connection-refused before it's had
+  # a chance to come up, which looks identical to "Ollama isn't there" even
+  # though it's about to be. Blocks this GenServer's init/1 (and so the
+  # supervision tree's startup) rather than returning early, so nothing
+  # downstream can observe `bundled?/0` as true before the server it points
+  # at is actually reachable. Bounded at ~5s and falls through regardless
+  # of outcome -- a genuinely broken/quarantined binary shouldn't hang app
+  # startup, and every caller already tolerates `{:error, _}` from here on.
+  defp await_ready(attempts_left \\ @ready_check_attempts)
+
+  defp await_ready(0) do
+    Logger.warning("Bundled Ollama server did not start listening within the startup budget")
+  end
+
+  defp await_ready(attempts_left) do
+    case :gen_tcp.connect(~c"127.0.0.1", @port, [:binary, active: false], 200) do
+      {:ok, socket} ->
+        :gen_tcp.close(socket)
+
+      {:error, _reason} ->
+        Process.sleep(@ready_check_interval_ms)
+        await_ready(attempts_left - 1)
+    end
   end
 
   defp bin_path do
