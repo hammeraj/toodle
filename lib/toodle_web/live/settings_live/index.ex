@@ -1,8 +1,9 @@
 defmodule ToodleWeb.SettingsLive.Index do
   use ToodleWeb, :live_view
 
-  alias Toodle.{Linear, Slack, Updater}
+  alias Toodle.{Linear, Projects, Slack, Updater}
   alias Toodle.Inbox.Cleanup
+  alias Toodle.Llm.{Ollama, OllamaServer}
 
   @impl true
   def render(assigns) do
@@ -140,34 +141,69 @@ defmodule ToodleWeb.SettingsLive.Index do
         <section class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
           <h3 class="font-semibold">Inbox Cleanup</h3>
           <p :if={@inbox_cleanup_bundled?} class="text-sm text-base-content/70">
-            Rewrites messy Slack messages into clean task titles using a small open-source
-            language model bundled with Toodle — runs fully offline, nothing to install.
-            Falls back to the raw message text automatically if the model can't produce a
-            clean title for some reason.
+            Tidies up incoming Slack messages using a small open-source language model —
+            the runtime ships with Toodle, nothing to install. The model itself (~1GB)
+            downloads once the first time you turn a guess on below, then runs fully
+            offline from then on — including across app updates, since it's kept outside
+            the app bundle rather than redownloaded with every update. Each guess below is
+            independent and best-effort: falls back to the raw message (and the Inbox
+            project, and no due date/estimate) automatically whenever it's off or the model
+            can't produce something usable.
           </p>
           <p :if={!@inbox_cleanup_bundled?} class="text-sm text-base-content/70">
-            Rewrites messy Slack messages into clean task titles using a small open-source
-            language model running locally via
-            <a
-              href="https://ollama.com"
-              target="_blank"
-              class="link"
-            >Ollama</a>
+            Tidies up incoming Slack messages using a small open-source language model
+            running locally via <a href="https://ollama.com" target="_blank" class="link">Ollama</a>
             — nothing leaves your machine. This build doesn't bundle one, so install Ollama
             yourself, run <code class="text-xs">ollama pull {@inbox_cleanup_model}</code>
-            (or whichever model you set below), then turn this on. Falls back to the raw
-            message text automatically whenever Ollama isn't reachable.
+            (or whichever model you set below), then turn features on below. Each guess is
+            independent and best-effort: falls back to the raw message (and the Inbox
+            project, and no due date/estimate) automatically whenever Ollama isn't reachable.
           </p>
 
-          <label class="label cursor-pointer w-fit gap-2">
-            <input
-              type="checkbox"
-              class="toggle toggle-primary"
-              checked={@inbox_cleanup_enabled?}
-              phx-click="toggle_inbox_cleanup"
-            />
-            <span>{if @inbox_cleanup_enabled?, do: "Enabled", else: "Disabled"}</span>
-          </label>
+          <p :if={@inbox_cleanup_bundled?}>
+            <span :if={@ollama_model_ready?} class="badge badge-success badge-soft badge-sm">
+              Model ready
+            </span>
+            <span :if={!@ollama_model_ready?} class="badge badge-ghost badge-sm">
+              Model downloads on first use (~1GB, one time)
+            </span>
+          </p>
+
+          <div class="space-y-1.5">
+            <label class="label cursor-pointer w-fit gap-2">
+              <input
+                type="checkbox"
+                class="toggle toggle-primary toggle-sm"
+                checked={@inbox_cleanup_enabled?}
+                phx-click="toggle_inbox_cleanup"
+              />
+              <span>Clean up titles — {if @inbox_cleanup_enabled?, do: "Enabled", else: "Disabled"}</span>
+            </label>
+            <label class="label cursor-pointer w-fit gap-2">
+              <input
+                type="checkbox"
+                class="toggle toggle-primary toggle-sm"
+                checked={@inbox_cleanup_auto_project?}
+                phx-click="toggle_inbox_cleanup_auto_project"
+              />
+              <span>
+                Guess project — {if @inbox_cleanup_auto_project?, do: "Enabled", else: "Disabled"}
+              </span>
+            </label>
+            <label class="label cursor-pointer w-fit gap-2">
+              <input
+                type="checkbox"
+                class="toggle toggle-primary toggle-sm"
+                checked={@inbox_cleanup_auto_metadata?}
+                phx-click="toggle_inbox_cleanup_auto_metadata"
+              />
+              <span>
+                Guess due date &amp; estimate — {if @inbox_cleanup_auto_metadata?,
+                  do: "Enabled",
+                  else: "Disabled"}
+              </span>
+            </label>
+          </div>
 
           <.form for={%{}} phx-submit="save_inbox_cleanup_model" class="flex gap-2">
             <input
@@ -179,6 +215,54 @@ defmodule ToodleWeb.SettingsLive.Index do
             />
             <button type="submit" class="btn btn-primary">Save</button>
           </.form>
+
+          <div class="divider my-1" />
+
+          <p class="text-sm font-medium">Try it on a sample message</p>
+          <.form for={%{}} phx-submit="preview_inbox_cleanup" class="space-y-2">
+            <textarea
+              name="text"
+              rows="3"
+              class="textarea textarea-bordered w-full"
+              placeholder="hey can someone look at the staging deploy, its been failing since this morning — should be quick"
+            >{@preview_text}</textarea>
+            <button type="submit" class="btn btn-sm btn-soft">Preview</button>
+          </.form>
+
+          <div :if={@preview_result} class="rounded-lg bg-base-200 p-3 text-sm space-y-1">
+            <p>
+              <span class="font-semibold">Title:</span>
+              <%= if @inbox_cleanup_enabled? do %>
+                {@preview_result.title}
+              <% else %>
+                <span class="text-base-content/50">cleanup is off</span>
+              <% end %>
+            </p>
+            <p>
+              <span class="font-semibold">Project:</span>
+              <%= if @inbox_cleanup_auto_project? do %>
+                {@preview_result.project || "no confident match — stays in Inbox"}
+              <% else %>
+                <span class="text-base-content/50">guessing is off</span>
+              <% end %>
+            </p>
+            <p>
+              <span class="font-semibold">Due date:</span>
+              <%= if @inbox_cleanup_auto_metadata? do %>
+                {format_date(@preview_result.due_date) || "nothing mentioned"}
+              <% else %>
+                <span class="text-base-content/50">guessing is off</span>
+              <% end %>
+            </p>
+            <p>
+              <span class="font-semibold">Estimate:</span>
+              <%= if @inbox_cleanup_auto_metadata? do %>
+                {format_estimate(@preview_result.estimate_hours) || "nothing mentioned"}
+              <% else %>
+                <span class="text-base-content/50">guessing is off</span>
+              <% end %>
+            </p>
+          </div>
         </section>
 
         <section class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
@@ -231,6 +315,8 @@ defmodule ToodleWeb.SettingsLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
+    bundled? = OllamaServer.bundled?()
+
     {:ok,
      socket
      |> assign(:page_title, "Settings")
@@ -238,14 +324,26 @@ defmodule ToodleWeb.SettingsLive.Index do
      |> assign(:slack_configured?, Slack.configured?())
      |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
      |> assign(:inbox_cleanup_enabled?, Cleanup.enabled?())
+     |> assign(:inbox_cleanup_auto_project?, Cleanup.auto_project_enabled?())
+     |> assign(:inbox_cleanup_auto_metadata?, Cleanup.auto_metadata_enabled?())
      |> assign(:inbox_cleanup_model, Cleanup.model())
-     |> assign(:inbox_cleanup_bundled?, Toodle.Llm.OllamaServer.bundled?())
+     |> assign(:inbox_cleanup_bundled?, bundled?)
+     |> assign(:ollama_model_ready?, bundled? && Ollama.model_present?(Cleanup.model()))
+     |> assign(:preview_text, "")
+     |> assign(:preview_result, nil)
      |> assign(:build_sha, short_sha(Updater.local_sha()))
      |> assign(:update_status, nil)}
   end
 
   defp short_sha(nil), do: nil
   defp short_sha(sha), do: String.slice(sha, 0, 7)
+
+  defp format_date(nil), do: nil
+  defp format_date(%Date{} = date), do: Calendar.strftime(date, "%b %d, %Y")
+
+  defp format_estimate(nil), do: nil
+  defp format_estimate(hours) when hours == trunc(hours), do: "#{trunc(hours)}h"
+  defp format_estimate(hours), do: "#{hours}h"
 
   @impl true
   def handle_event("save_linear_key", %{"api_key" => ""}, socket) do
@@ -289,12 +387,56 @@ defmodule ToodleWeb.SettingsLive.Index do
   def handle_event("toggle_inbox_cleanup", _params, socket) do
     enabled? = !socket.assigns.inbox_cleanup_enabled?
     Cleanup.put_enabled(enabled?)
-    {:noreply, assign(socket, :inbox_cleanup_enabled?, enabled?)}
+
+    socket = assign(socket, :inbox_cleanup_enabled?, enabled?)
+    {:noreply, if(enabled?, do: maybe_pull_model(socket), else: socket)}
+  end
+
+  def handle_event("toggle_inbox_cleanup_auto_project", _params, socket) do
+    enabled? = !socket.assigns.inbox_cleanup_auto_project?
+    Cleanup.put_auto_project_enabled(enabled?)
+
+    socket = assign(socket, :inbox_cleanup_auto_project?, enabled?)
+    {:noreply, if(enabled?, do: maybe_pull_model(socket), else: socket)}
+  end
+
+  def handle_event("toggle_inbox_cleanup_auto_metadata", _params, socket) do
+    enabled? = !socket.assigns.inbox_cleanup_auto_metadata?
+    Cleanup.put_auto_metadata_enabled(enabled?)
+
+    socket = assign(socket, :inbox_cleanup_auto_metadata?, enabled?)
+    {:noreply, if(enabled?, do: maybe_pull_model(socket), else: socket)}
   end
 
   def handle_event("save_inbox_cleanup_model", %{"model" => model}, socket) do
     Cleanup.put_model(model)
-    {:noreply, assign(socket, :inbox_cleanup_model, Cleanup.model())}
+
+    {:noreply,
+     socket
+     |> assign(:inbox_cleanup_model, Cleanup.model())
+     |> maybe_pull_model()}
+  end
+
+  def handle_event("preview_inbox_cleanup", %{"text" => text}, socket) do
+    case String.trim(text) do
+      "" ->
+        {:noreply, socket |> assign(:preview_text, "") |> assign(:preview_result, nil)}
+
+      text ->
+        project_names =
+          Projects.list_projects() |> Enum.reject(&(&1.name == "Inbox")) |> Enum.map(& &1.name)
+
+        metadata = Cleanup.suggest_metadata(text)
+
+        result = %{
+          title: Cleanup.clean_title(text, text),
+          project: Cleanup.suggest_project(text, project_names),
+          due_date: metadata.due_date,
+          estimate_hours: metadata.estimate_hours
+        }
+
+        {:noreply, socket |> assign(:preview_text, text) |> assign(:preview_result, result)}
+    end
   end
 
   def handle_event("poll_now", _params, socket) do
@@ -345,7 +487,38 @@ defmodule ToodleWeb.SettingsLive.Index do
     end
   end
 
+  # Kicks off a background pull of the currently-configured model against
+  # the bundled server, then refreshes the readiness badge once it lands —
+  # a no-op (no network call, badge unaffected) whenever there's no bundled
+  # server to pull into. Ollama's own pull is a fast no-op when the model
+  # is already present, so this always fires on opt-in/model-change rather
+  # than trying to track readiness ourselves beforehand (which would go
+  # stale the moment the model name changes).
+  defp maybe_pull_model(socket) do
+    if socket.assigns.inbox_cleanup_bundled? do
+      model = socket.assigns.inbox_cleanup_model
+      live_view_pid = self()
+
+      Task.start(fn ->
+        Ollama.ensure_model(model)
+        send(live_view_pid, {:model_pull_finished, model})
+      end)
+    end
+
+    socket
+  end
+
   @impl true
+  def handle_info({:model_pull_finished, model}, socket) do
+    # Only trust this against whatever model is still configured by the
+    # time the pull lands — the user may have changed it again mid-pull.
+    if model == socket.assigns.inbox_cleanup_model do
+      {:noreply, assign(socket, :ollama_model_ready?, Ollama.model_present?(model))}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:update_failed, reason}, socket) do
     {:noreply,
      socket

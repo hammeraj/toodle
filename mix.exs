@@ -353,15 +353,22 @@ defmodule Toodle.MixProject do
     release
   end
 
-  # Embeds a bundled Ollama runtime + model (see Toodle.Llm.OllamaServer)
-  # into the release's priv dir, macOS-only, and only when
-  # TOODLE_OLLAMA_BUNDLE_DIR points at a pre-staged `bin/` + `models/`
-  # directory (see .github/workflows/desktop-build.yml's "Fetch bundled
-  # Ollama runtime + model" step -- fetching and stripping the ~1GB
-  # runtime+model here on every local `mix release` would be both slow and
-  # unwanted for anyone not testing this specifically). A no-op release
-  # step otherwise, same convention as make_release_writable/1 and
-  # disable_distribution/1 above.
+  # Embeds a bundled Ollama runtime (see Toodle.Llm.OllamaServer) into the
+  # release's priv dir, macOS-only, and only when TOODLE_OLLAMA_BUNDLE_DIR
+  # points at a pre-staged `bin/` directory (see
+  # .github/workflows/desktop-build.yml's "Fetch bundled Ollama runtime"
+  # step -- fetching and stripping the runtime here on every local `mix
+  # release` would be both slow and unwanted for anyone not testing this
+  # specifically). A no-op release step otherwise, same convention as
+  # make_release_writable/1 and disable_distribution/1 above.
+  #
+  # The model itself is deliberately *not* bundled here -- it's pulled at
+  # runtime by Toodle.Llm.Ollama.ensure_model/1 into
+  # Toodle.Llm.OllamaServer.models_dir/0, which lives outside the release
+  # entirely so it survives updates (Toodle.Updater.Applier replaces this
+  # whole .app wholesale on every update; bundling the ~1GB model here
+  # would force a redownload of it with every release regardless of
+  # whether the model itself had changed).
   #
   # This step runs *before* Desktop.Deployment.generate_installer/1
   # rather than patching the finished .app after the fact (contrast with
@@ -385,7 +392,6 @@ defmodule Toodle.MixProject do
     File.mkdir_p!(dest)
 
     File.cp_r!(Path.join(source_dir, "bin"), Path.join(dest, "bin"))
-    File.cp_r!(Path.join(source_dir, "models"), Path.join(dest, "models"))
 
     # cp_r! preserves source file modes, but be explicit that the entry
     # points stay executable regardless of how the bundle dir was
@@ -395,7 +401,7 @@ defmodule Toodle.MixProject do
       if File.exists?(path), do: File.chmod!(path, 0o755)
     end
 
-    IO.puts("Bundled Ollama runtime + model from #{source_dir} into #{dest}")
+    IO.puts("Bundled Ollama runtime from #{source_dir} into #{dest}")
   end
 
   # Configuration for the OTP application.

@@ -86,6 +86,8 @@ defmodule Toodle.Tasks.Task do
       :project_id,
       :title,
       :description,
+      :due_date,
+      :estimate_hours,
       :slack_channel_id,
       :slack_message_ts,
       :slack_permalink

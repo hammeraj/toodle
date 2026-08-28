@@ -49,8 +49,71 @@ defmodule Toodle.Llm.Ollama do
     end
   end
 
-  defp request do
-    [base_url: host(), receive_timeout: 8_000]
+  @doc """
+  Pulls `model` into whichever server `host/0` resolves to, if it isn't
+  already there — a fast no-op when it is, since Ollama checks its own
+  content-addressed blob store before transferring anything, and that's
+  exactly how a real model version bump gets picked up without a full
+  redownload.
+
+  Meant for the bundled runtime specifically (see `OllamaServer` for why
+  it owns its models directory) — callers should check
+  `OllamaServer.bundled?/0` first, same as `Toodle.Inbox.Cleanup`'s
+  Settings-driven callers do, rather than reaching into a user's own
+  separately-installed Ollama uninvited.
+
+  Downloading a model for real can take a while, so callers that don't
+  want to block should wrap this in a `Task`.
+  """
+  def ensure_model(model \\ @default_model) do
+    request(receive_timeout: :infinity)
+    |> Req.post(url: "/api/pull", json: %{model: model, stream: false})
+    |> case do
+      {:ok, %Req.Response{status: 200}} -> :ok
+      {:ok, %Req.Response{status: status}} -> {:error, "Ollama returned HTTP #{status}"}
+      {:error, exception} -> {:error, Exception.message(exception)}
+    end
+  end
+
+  @doc "Whether `model` is already pulled locally, for whichever server `host/0` resolves to."
+  def model_present?(model) do
+    case list_models() do
+      {:ok, names} -> Enum.any?(names, &matches_model?(&1, model))
+      {:error, _reason} -> false
+    end
+  end
+
+  defp list_models do
+    request()
+    |> Req.get(url: "/api/tags")
+    |> case do
+      {:ok, %Req.Response{status: 200, body: %{"models" => models}}} when is_list(models) ->
+        {:ok, Enum.map(models, & &1["name"])}
+
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        {:error, "Ollama response missing \"models\" field: #{inspect(body)}"}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, "Ollama returned HTTP #{status}"}
+
+      {:error, exception} ->
+        {:error, Exception.message(exception)}
+    end
+  end
+
+  # A pulled model's tag defaults to ":latest" when the caller's model name
+  # didn't specify one, same as `ollama pull` itself.
+  defp matches_model?(name, model) do
+    name == model or (not String.contains?(model, ":") and name == "#{model}:latest")
+  end
+
+  # retry: false -- a local single-user Ollama is either up or it isn't;
+  # Req's default retry-with-backoff on a GET (like list_models/0's) turns
+  # one unreachable-server call into several seconds of retries instead of
+  # the instant fallback every caller here is written to expect.
+  defp request(opts \\ []) do
+    [base_url: host(), receive_timeout: 8_000, retry: false]
+    |> Keyword.merge(opts)
     |> Req.new()
     |> maybe_plug()
   end
