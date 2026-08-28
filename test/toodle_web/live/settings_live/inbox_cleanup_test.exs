@@ -98,6 +98,21 @@ defmodule ToodleWeb.SettingsLive.InboxCleanupTest do
     refute html =~ "Some title"
   end
 
+  test "previewing shows the reason a title stayed unchanged when Ollama errors" do
+    {:ok, view, _html} = live(build_conn(), ~p"/settings")
+
+    render_click(view, "toggle_inbox_cleanup")
+
+    Req.Test.stub(Ollama, fn conn -> Plug.Conn.send_resp(conn, 500, "boom") end)
+
+    html =
+      render_submit(view, "preview_inbox_cleanup", %{"text" => "fix the staging deploy"})
+
+    assert html =~ "fix the staging deploy"
+    assert html =~ "unchanged"
+    assert html =~ "Ollama returned HTTP 500"
+  end
+
   test "no model readiness badge or download attempt when nothing is bundled" do
     {:ok, view, html} = live(build_conn(), ~p"/settings")
 

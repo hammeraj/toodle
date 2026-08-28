@@ -46,21 +46,37 @@ defmodule Toodle.Inbox.Cleanup do
   is disabled or anything about the LLM call goes wrong.
   """
   def clean_title(raw_text, fallback) do
+    case clean_title_result(raw_text) do
+      {:ok, title} -> title
+      _ -> fallback
+    end
+  end
+
+  @doc """
+  Same rewrite as `clean_title/2`, but keeps the reason a call didn't
+  produce one instead of collapsing it into a fallback — for the Settings
+  preview, where seeing *why* a call failed (versus a bare unchanged title
+  that looks identical whether cleanup is off, unreachable, or just
+  echoing) is the whole point. Returns `{:ok, title}`, `{:error, reason}`,
+  or `:disabled`.
+  """
+  def clean_title_result(raw_text) do
     if enabled?() do
-      raw_text |> prompt() |> Ollama.generate_json(model()) |> title_or_fallback(fallback)
+      raw_text |> prompt() |> Ollama.generate_json(model()) |> title_result()
     else
-      fallback
+      :disabled
     end
   end
 
-  defp title_or_fallback({:ok, %{"title" => title}}, fallback) when is_binary(title) do
+  defp title_result({:ok, %{"title" => title}}) when is_binary(title) do
     case String.trim(title) do
-      "" -> fallback
-      title -> title
+      "" -> {:error, "model returned an empty title"}
+      title -> {:ok, title}
     end
   end
 
-  defp title_or_fallback(_result, fallback), do: fallback
+  defp title_result({:ok, other}), do: {:error, "unexpected response: #{inspect(other)}"}
+  defp title_result({:error, reason}), do: {:error, reason}
 
   defp prompt(raw_text) do
     """
