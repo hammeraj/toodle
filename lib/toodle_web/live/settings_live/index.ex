@@ -272,6 +272,9 @@ defmodule ToodleWeb.SettingsLive.Index do
               <span class="font-semibold">Title:</span>
               <%= if @inbox_cleanup_enabled? do %>
                 {@preview_result.title}
+                <span :if={@preview_result.title_error} class="text-error">
+                  (unchanged — {@preview_result.title_error})
+                </span>
               <% else %>
                 <span class="text-base-content/50">cleanup is off</span>
               <% end %>
@@ -394,6 +397,10 @@ defmodule ToodleWeb.SettingsLive.Index do
     {:ok, socket}
   end
 
+  defp title_and_error({:ok, title}, _fallback), do: {title, nil}
+  defp title_and_error({:error, reason}, fallback), do: {fallback, reason}
+  defp title_and_error(:disabled, fallback), do: {fallback, nil}
+
   defp short_sha(nil), do: nil
   defp short_sha(sha), do: String.slice(sha, 0, 7)
 
@@ -492,9 +499,11 @@ defmodule ToodleWeb.SettingsLive.Index do
           Projects.list_projects() |> Enum.reject(&(&1.name == "Inbox")) |> Enum.map(& &1.name)
 
         metadata = Cleanup.suggest_metadata(text)
+        {title, title_error} = title_and_error(Cleanup.clean_title_result(text), text)
 
         result = %{
-          title: Cleanup.clean_title(text, text),
+          title: title,
+          title_error: title_error,
           project: Cleanup.suggest_project(text, project_names),
           due_date: metadata.due_date,
           estimate_hours: metadata.estimate_hours
