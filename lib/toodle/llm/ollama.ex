@@ -51,9 +51,10 @@ defmodule Toodle.Llm.Ollama do
         log_error("response missing \"response\" field: #{inspect(body)}")
         {:error, "Ollama response missing \"response\" field: #{inspect(body)}"}
 
-      {:ok, %Req.Response{status: status}} ->
-        log_error("returned HTTP #{status}")
-        {:error, "Ollama returned HTTP #{status}"}
+      {:ok, %Req.Response{status: status, body: body}} ->
+        message = http_error_message(status, body)
+        log_error(message)
+        {:error, message}
 
       {:error, exception} ->
         log_error(Exception.message(exception))
@@ -84,9 +85,10 @@ defmodule Toodle.Llm.Ollama do
       {:ok, %Req.Response{status: 200}} ->
         :ok
 
-      {:ok, %Req.Response{status: status}} ->
-        log_error("pull of #{model} returned HTTP #{status}")
-        {:error, "Ollama returned HTTP #{status}"}
+      {:ok, %Req.Response{status: status, body: body}} ->
+        message = http_error_message(status, body)
+        log_error("pull of #{model} #{message}")
+        {:error, message}
 
       {:error, exception} ->
         log_error("pull of #{model} failed: #{Exception.message(exception)}")
@@ -113,9 +115,10 @@ defmodule Toodle.Llm.Ollama do
         log_error("response missing \"models\" field: #{inspect(body)}")
         {:error, "Ollama response missing \"models\" field: #{inspect(body)}"}
 
-      {:ok, %Req.Response{status: status}} ->
-        log_error("returned HTTP #{status}")
-        {:error, "Ollama returned HTTP #{status}"}
+      {:ok, %Req.Response{status: status, body: body}} ->
+        message = http_error_message(status, body)
+        log_error(message)
+        {:error, message}
 
       {:error, exception} ->
         log_error(Exception.message(exception))
@@ -148,6 +151,16 @@ defmodule Toodle.Llm.Ollama do
   end
 
   defp config, do: Application.get_env(:toodle, __MODULE__, [])
+
+  # Ollama's non-200 responses are almost always {"error": "<what actually
+  # went wrong>"} -- a crashed model runner, an out-of-memory kill, a bad
+  # request -- which is the one piece of information that actually explains
+  # a failure. A bare status code alone ("HTTP 500") tells a caller nothing
+  # they can act on.
+  defp http_error_message(status, %{"error" => error}) when is_binary(error),
+    do: "Ollama returned HTTP #{status}: #{error}"
+
+  defp http_error_message(status, _body), do: "Ollama returned HTTP #{status}"
 
   # Every caller here treats an Ollama failure as best-effort (fall back and
   # move on), so without this the only trace of a broken local model setup

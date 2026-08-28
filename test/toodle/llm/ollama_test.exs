@@ -17,6 +17,19 @@ defmodule Toodle.Llm.OllamaTest do
     assert {:error, "Ollama returned HTTP 500"} = Ollama.generate_json("clean this up")
   end
 
+  test "generate_json/2 includes Ollama's own error detail on a non-200 JSON error body" do
+    Req.Test.stub(Ollama, fn conn ->
+      body = Jason.encode!(%{"error" => "model runner crashed: out of memory"})
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(500, body)
+    end)
+
+    assert {:error, "Ollama returned HTTP 500: model runner crashed: out of memory"} =
+             Ollama.generate_json("clean this up")
+  end
+
   test "generate_json/2 errors when the response isn't valid JSON" do
     Req.Test.stub(Ollama, fn conn ->
       Req.Test.json(conn, %{"response" => "not json"})
