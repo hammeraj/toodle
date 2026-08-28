@@ -1,7 +1,7 @@
 defmodule ToodleWeb.SettingsLive.Index do
   use ToodleWeb, :live_view
 
-  alias Toodle.{Linear, Projects, Slack, Updater}
+  alias Toodle.{Linear, Projects, Slack, Tasks, Updater}
   alias Toodle.Inbox.Cleanup
   alias Toodle.Llm.{Ollama, OllamaServer}
 
@@ -136,6 +136,23 @@ defmodule ToodleWeb.SettingsLive.Index do
           <button type="button" phx-click="poll_now" class="btn btn-sm btn-soft">
             <.icon name="hero-arrow-path" class="size-4" /> Check now
           </button>
+        </section>
+
+        <section class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
+          <h3 class="font-semibold">Board</h3>
+          <p class="text-sm text-base-content/70">
+            Archived tasks are hidden from the board by default.
+          </p>
+
+          <label class="label cursor-pointer w-fit gap-2">
+            <input
+              type="checkbox"
+              class="toggle toggle-primary"
+              checked={@board_show_archived?}
+              phx-click="toggle_board_show_archived"
+            />
+            <span>{if @board_show_archived?, do: "Showing archived", else: "Hiding archived"}</span>
+          </label>
         </section>
 
         <section class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
@@ -320,6 +337,7 @@ defmodule ToodleWeb.SettingsLive.Index do
     {:ok,
      socket
      |> assign(:page_title, "Settings")
+     |> assign(:board_show_archived?, Tasks.show_archived?())
      |> assign(:linear_configured?, Linear.api_key_configured?())
      |> assign(:slack_configured?, Slack.configured?())
      |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
@@ -382,6 +400,12 @@ defmodule ToodleWeb.SettingsLive.Index do
          |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
          |> put_flash(:info, "Slack settings saved")}
     end
+  end
+
+  def handle_event("toggle_board_show_archived", _params, socket) do
+    show? = !socket.assigns.board_show_archived?
+    Tasks.put_show_archived(show?)
+    {:noreply, assign(socket, :board_show_archived?, show?)}
   end
 
   def handle_event("toggle_inbox_cleanup", _params, socket) do

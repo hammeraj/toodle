@@ -8,9 +8,17 @@ defmodule Toodle.Tasks do
   import Ecto.Query, warn: false
   alias Ecto.Multi
   alias Toodle.Repo
+  alias Toodle.Settings
   alias Toodle.Tasks.{Task, TaskEvent, TimeEntry, StatusMachine}
 
   @topic "tasks"
+  @show_archived_key "board_show_archived"
+
+  @doc "Whether the board should include archived tasks — a persisted display setting."
+  def show_archived?, do: Settings.get(@show_archived_key) == "true"
+
+  def put_show_archived(show?) when is_boolean(show?),
+    do: Settings.put(@show_archived_key, to_string(show?))
 
   @doc """
   Subscribes the calling process to task changes — every create, update,
