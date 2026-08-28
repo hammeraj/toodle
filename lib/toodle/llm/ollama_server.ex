@@ -69,11 +69,38 @@ defmodule Toodle.Llm.OllamaServer do
   @impl true
   def terminate(_reason, %{port: port}) do
     case Port.info(port, :os_pid) do
-      {:os_pid, os_pid} -> System.cmd("kill", [to_string(os_pid)])
+      {:os_pid, os_pid} -> kill_and_wait(os_pid)
       nil -> :ok
     end
 
     :ok
+  end
+
+  # Waits for the killed subprocess to actually exit rather than firing a
+  # signal and immediately returning -- otherwise this GenServer's
+  # `terminate/2` (and the app's overall shutdown, e.g.
+  # `Toodle.Updater.Applier`'s `System.stop(0)` before a relaunch) can
+  # complete while `ollama serve` is still mid-shutdown, orphaning it as a
+  # live process still bound to `@port` that the *next* launch then has to
+  # contend with. SIGTERM first, SIGKILL if it hasn't died within the
+  # polling window -- bounded well under the supervisor's default 5s
+  # shutdown budget for this child.
+  defp kill_and_wait(os_pid) do
+    System.cmd("kill", [to_string(os_pid)])
+    wait_for_exit(os_pid, 20)
+  end
+
+  defp wait_for_exit(os_pid, 0), do: System.cmd("kill", ["-9", to_string(os_pid)])
+
+  defp wait_for_exit(os_pid, attempts_left) do
+    case System.cmd("kill", ["-0", to_string(os_pid)], stderr_to_stdout: true) do
+      {_output, 0} ->
+        Process.sleep(100)
+        wait_for_exit(os_pid, attempts_left - 1)
+
+      {_output, _nonzero} ->
+        :ok
+    end
   end
 
   defp open_port(bin) do
