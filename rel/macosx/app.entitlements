@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<!--
+	desktop_deployment's MacOS.codesign/1 (see mix.exs's release step) signs
+	every nested Mach-O in the bundle -- including the bundled Ollama
+	runtime's ollama/llama-server and their libggml*/libllama* dylibs, see
+	Toodle.Llm.OllamaServer -- with hardened runtime and this same
+	entitlements file. Hardened runtime's library validation otherwise
+	restricts a process to only dlopen()ing libraries signed by Apple or by
+	the exact same Team ID, which is fragile across the notarization/stapling
+	pipeline for a third-party binary that does its own runtime backend
+	discovery (ggml's dynamic CPU/GPU backend loading) rather than a fixed,
+	build-time-linked set of libraries.
+	-->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.device.camera</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>
