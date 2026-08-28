@@ -52,7 +52,7 @@ defmodule Toodle.Llm.OllamaServer do
         Logger.info("Starting bundled Ollama server from #{bin}")
         port = open_port(bin)
         await_ready()
-        {:ok, %{port: port}}
+        {:ok, %{port: port, bin: bin, restart_count: 0}}
     end
   end
 
@@ -64,7 +64,19 @@ defmodule Toodle.Llm.OllamaServer do
 
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.warning("Bundled ollama server exited with status #{status}")
-    {:noreply, state}
+    schedule_restart(state)
+  end
+
+  # Fires after schedule_restart/1's delay. Relaunching inline in the
+  # :exit_status handler above would tight-loop a binary that dies the
+  # instant it's spawned (quarantine/Gatekeeper block, a genuinely corrupt
+  # download, ...); this gives each attempt a beat to actually fail instead
+  # of burning CPU respawning it hundreds of times a second.
+  def handle_info(:restart_bundled_ollama, %{bin: bin} = state) do
+    Logger.info("Restarting bundled Ollama server from #{bin}")
+    port = open_port(bin)
+    await_ready()
+    {:noreply, %{state | port: port}}
   end
 
   @impl true
@@ -102,6 +114,30 @@ defmodule Toodle.Llm.OllamaServer do
       {_output, _nonzero} ->
         :ok
     end
+  end
+
+  # A one-shot launch failure shouldn't leave Ollama dead for the rest of
+  # the app's session -- the only way anyone finds out is by noticing every
+  # subsequent call quietly falls back, same as the exact bug this restart
+  # logic exists to stop recurring. Capped rather than retried forever: a
+  # binary that's persistently broken (corrupt download, blocked outright)
+  # would otherwise crash-loop indefinitely: once for the app's whole
+  # lifetime is enough given how rare an actual crash here is expected to
+  # be, not reset on a successful stretch of uptime.
+  @max_restart_attempts 5
+  @restart_delay_ms 2_000
+
+  defp schedule_restart(%{restart_count: count} = state) when count < @max_restart_attempts do
+    Process.send_after(self(), :restart_bundled_ollama, @restart_delay_ms)
+    {:noreply, %{state | restart_count: count + 1}}
+  end
+
+  defp schedule_restart(state) do
+    Logger.error(
+      "Bundled Ollama server crashed #{@max_restart_attempts} times -- giving up on restarting it for this session"
+    )
+
+    {:noreply, state}
   end
 
   defp open_port(bin) do
