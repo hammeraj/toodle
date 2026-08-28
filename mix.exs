@@ -401,7 +401,38 @@ defmodule Toodle.MixProject do
       if File.exists?(path), do: File.chmod!(path, 0o755)
     end
 
+    thin_to_arm64(Path.join(dest, "bin"))
+
     IO.puts("Bundled Ollama runtime from #{source_dir} into #{dest}")
+  end
+
+  # Ollama's official macOS release ships these three as universal binaries
+  # with the x86_64 slice listed *first* in the fat header -- and unlike a
+  # shell or LaunchServices, `Port.open({:spawn_executable, ...})`
+  # (Toodle.Llm.OllamaServer's launch mechanism) doesn't reliably resolve a
+  # fat binary to the host's native slice, observed hands-on to run the
+  # x86_64 slice under Rosetta on real Apple Silicon hardware. That slice
+  # needs the exact CPU backend plugins (`libggml-cpu-*.so`) the CI build
+  # deliberately strips (see desktop-build.yml) -- producing a
+  # "make_cpu_buft_list: no CPU backend found" crash the arm64 slice never
+  # hits, since it has its CPU/Metal backend statically compiled in. Since
+  # Toodle only ever ships arm64 (see the "Verify arm64 build" CI step),
+  # thinning these to arm64-only removes the ambiguity entirely rather than
+  # depending on whatever spawned the process picking the right slice.
+  # Re-signed along with everything else by the release's own signing pass
+  # (see MacOS.codesign/1 and MacOS.adhoc_sign/1), so no re-sign needed
+  # here.
+  defp thin_to_arm64(bin_dir) do
+    for bin <- ["ollama", "llama-server", "llama-quantize"] do
+      path = Path.join(bin_dir, bin)
+
+      if File.exists?(path) do
+        thinned = path <> ".arm64"
+        {_output, 0} = System.cmd("lipo", ["-thin", "arm64", "-output", thinned, path])
+        File.rename!(thinned, path)
+        File.chmod!(path, 0o755)
+      end
+    end
   end
 
   # Configuration for the OTP application.
