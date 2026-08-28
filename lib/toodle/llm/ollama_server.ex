@@ -1,14 +1,22 @@
 defmodule Toodle.Llm.OllamaServer do
   @moduledoc """
-  Supervises a bundled `ollama serve` subprocess, for builds that ship one
-  under `priv/ollama/` (macOS only, for now — see `mix.exs`'s
-  `bundle_ollama/1` release step). Always part of the supervision tree
-  (see `Toodle.Application`), same as `Toodle.Slack.Poller`, but a no-op
-  whenever there's nothing bundled to run — a plain `mix phx.server` dev
-  build, a Windows build, or any build produced without
-  `TOODLE_OLLAMA_BUNDLE_DIR` set. In that case `Toodle.Llm.Ollama` just
-  falls back to its previous default (a user's own separately-installed
-  Ollama on the standard port).
+  Supervises a bundled `ollama serve` subprocess, for builds that ship the
+  runtime binary under `priv/ollama/bin/` (macOS only, for now — see
+  `mix.exs`'s `bundle_ollama/1` release step). Always part of the
+  supervision tree (see `Toodle.Application`), same as
+  `Toodle.Slack.Poller`, but a no-op whenever there's nothing bundled to
+  run — a plain `mix phx.server` dev build, a Windows build, or any build
+  produced without `TOODLE_OLLAMA_BUNDLE_DIR` set. In that case
+  `Toodle.Llm.Ollama` just falls back to its previous default (a user's
+  own separately-installed Ollama on the standard port).
+
+  Only the ~100MB runtime ships in the release; the model itself (~1GB)
+  is *not* bundled — `Toodle.Llm.Ollama.ensure_model/1` pulls it on
+  demand, into `models_dir/0` below rather than anywhere under the
+  release's own `priv/`, specifically so it survives an app update
+  (`Toodle.Updater.Applier` replaces the whole `.app` bundle wholesale on
+  every update, which would otherwise force a ~1GB redownload every time
+  even when the model itself hasn't changed).
 
   Runs on a fixed, non-default port specifically so this never collides
   with a system Ollama the user might also have installed on the standard
@@ -18,17 +26,21 @@ defmodule Toodle.Llm.OllamaServer do
   use GenServer
   require Logger
 
+  alias Toodle.Paths
+
   @port 11535
   @relative_bin_dir "ollama/bin"
-  @relative_models_dir "ollama/models"
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc "The base URL the bundled server listens on, once running."
   def host, do: "http://127.0.0.1:#{@port}"
 
-  @doc "Whether this build ships a bundled Ollama runtime + model at all."
+  @doc "Whether this build ships a bundled Ollama runtime at all."
   def bundled?, do: bin_path() != nil
+
+  @doc "Where the bundled server keeps pulled models — outside the release bundle, so updates don't touch it."
+  def models_dir, do: Path.join(Paths.data_dir(), "ollama/models")
 
   @impl true
   def init(_opts) do
@@ -65,6 +77,8 @@ defmodule Toodle.Llm.OllamaServer do
   end
 
   defp open_port(bin) do
+    File.mkdir_p!(models_dir())
+
     Port.open(
       {:spawn_executable, bin},
       [
@@ -86,5 +100,4 @@ defmodule Toodle.Llm.OllamaServer do
   end
 
   defp bin_dir, do: Path.join(Application.app_dir(:toodle, "priv"), @relative_bin_dir)
-  defp models_dir, do: Path.join(Application.app_dir(:toodle, "priv"), @relative_models_dir)
 end

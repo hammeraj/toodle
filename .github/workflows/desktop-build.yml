@@ -27,8 +27,11 @@ jobs:
       # Pinned rather than "latest" so the bundle step below stays
       # reproducible and cacheable. See Toodle.Llm.OllamaServer for how
       # this gets run, and mix.exs's bundle_ollama/1 for how it's embedded.
+      # Only the runtime is bundled here -- the model is pulled at runtime
+      # by Toodle.Llm.Ollama.ensure_model/1 (see that module and
+      # OllamaServer.models_dir/0 for why), so there's no model version to
+      # pin for CI's purposes.
       OLLAMA_VERSION: v0.33.0
-      OLLAMA_BUNDLE_MODEL: qwen2.5:1.5b
     steps:
       - uses: actions/checkout@v4
 
@@ -72,21 +75,21 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install imagemagick
 
-      # Bundled Ollama runtime + model that Toodle.Llm.OllamaServer spawns
-      # at app launch (macOS only for now — see mix.exs's bundle_ollama/1).
-      # Cached across builds since it's ~150MB (runtime) + ~1GB (model)
-      # neither of which change unless OLLAMA_VERSION/OLLAMA_BUNDLE_MODEL
-      # above are bumped; re-fetching and re-pulling that on every push
-      # would be slow and wasteful.
-      - name: Cache bundled Ollama runtime + model (macOS)
+      # Bundled Ollama runtime that Toodle.Llm.OllamaServer spawns at app
+      # launch (macOS only for now — see mix.exs's bundle_ollama/1). The
+      # model is deliberately not bundled or fetched here at all — see
+      # that comment and Toodle.Llm.Ollama.ensure_model/1 — so this only
+      # ever needs to move ~100MB, cached across builds since it doesn't
+      # change unless OLLAMA_VERSION above is bumped.
+      - name: Cache bundled Ollama runtime (macOS)
         if: runner.os == 'macOS'
         id: ollama-bundle-cache
         uses: actions/cache@v4
         with:
           path: ollama-bundle
-          key: ollama-bundle-${{ env.OLLAMA_VERSION }}-${{ env.OLLAMA_BUNDLE_MODEL }}-v1
+          key: ollama-bundle-${{ env.OLLAMA_VERSION }}-v2
 
-      - name: Fetch bundled Ollama runtime + model (macOS)
+      - name: Fetch bundled Ollama runtime (macOS)
         if: runner.os == 'macOS' && steps.ollama-bundle-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
@@ -98,30 +101,13 @@ jobs:
 
           # Ollama's macOS tarball bundles GPU/CPU backend variants for every
           # x86_64 microarchitecture (Toodle ships arm64-only, verified
-          # elsewhere in this job) and an Apple MLX runtime that GGUF models
-          # like the one bundled here don't use — confirmed hands-on that
+          # elsewhere in this job) and an Apple MLX runtime that the small
+          # GGUF models this app uses don't need — confirmed hands-on that
           # generation still works via the Metal backend with both removed,
           # and it cuts this from ~485MB to ~100MB on disk.
           rm -f ollama-bundle/bin/libggml-cpu-*.so
           rm -rf ollama-bundle/bin/mlx_metal_v3 ollama-bundle/bin/mlx_metal_v4
 
-          # Populate the models dir by actually pulling through a real
-          # `ollama serve` — its content-addressed blob store isn't a plain
-          # GGUF file, so this is the only supported way to stage it for
-          # fully offline bundling later.
-          mkdir -p ollama-bundle/models
-          OLLAMA_MODELS="$PWD/ollama-bundle/models" OLLAMA_HOST=127.0.0.1:11535 \
-            ./ollama-bundle/bin/ollama serve &
-          echo $! > ollama-serve.pid
-
-          for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:11535/api/version >/dev/null && break
-            sleep 1
-          done
-
-          OLLAMA_HOST=127.0.0.1:11535 ./ollama-bundle/bin/ollama pull "$OLLAMA_BUNDLE_MODEL"
-
-          kill "$(cat ollama-serve.pid)"
           du -sh ollama-bundle
 
       - name: Install dependencies

@@ -154,11 +154,14 @@ defmodule Toodle.Slack do
   defp do_import(token, channel_id, ts, text) do
     inbox = Projects.get_or_create_inbox!()
     permalink = fetch_permalink(token, channel_id, ts)
+    metadata = Cleanup.suggest_metadata(text)
 
     attrs = %{
-      project_id: inbox.id,
+      project_id: suggested_project_id(text, inbox),
       title: Cleanup.clean_title(text, title_from(text)),
       description: text,
+      due_date: metadata.due_date,
+      estimate_hours: metadata.estimate_hours,
       slack_channel_id: channel_id,
       slack_message_ts: ts,
       slack_permalink: permalink
@@ -168,6 +171,18 @@ defmodule Toodle.Slack do
       {:ok, %Tasks.Task{}} -> true
       {:ok, :duplicate} -> false
       {:error, _changeset} -> false
+    end
+  end
+
+  # Falls back to the Inbox project whenever project guessing is off,
+  # nothing matched confidently, or there's no other project to pick from
+  # yet — every message always has somewhere to land.
+  defp suggested_project_id(text, inbox) do
+    other_projects = Enum.reject(Projects.list_projects(), &(&1.id == inbox.id))
+
+    case Cleanup.suggest_project(text, Enum.map(other_projects, & &1.name)) do
+      nil -> inbox.id
+      name -> Enum.find(other_projects, &(&1.name == name)).id
     end
   end
 
