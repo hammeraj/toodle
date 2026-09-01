@@ -25,21 +25,36 @@ defmodule Toodle.Application do
     [
       {DNSCluster, query: Application.get_env(:toodle, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Toodle.PubSub},
-      ToodleWeb.Endpoint,
-      Toodle.Slack.Poller,
-      Toodle.Llm.OllamaServer,
-      # Mounted into the router at /mcp (see ToodleWeb.Router) rather than
-      # run as a separate process -- same Repo connection pool as the
-      # LiveView UI, always available whenever this app is running, nothing
-      # extra for Claude to spawn.
-      # start: true bypasses anubis_mcp's own auto-detection of "is an HTTP
-      # server running" (it checks PHX_SERVER/a Phoenix-internal flag that
-      # our release boot path never sets, even though the endpoint is
-      # unambiguously up by this point) -- we already know it should start,
-      # since this is only reached as part of web_children in the first
-      # place.
-      {Toodle.MCP.Server, transport: {:streamable_http, start: true}}
-    ] ++ desktop_children()
+      ToodleWeb.Endpoint
+    ] ++
+      slack_poller_children() ++
+      [
+        Toodle.Llm.OllamaServer,
+        # Mounted into the router at /mcp (see ToodleWeb.Router) rather than
+        # run as a separate process -- same Repo connection pool as the
+        # LiveView UI, always available whenever this app is running, nothing
+        # extra for Claude to spawn.
+        # start: true bypasses anubis_mcp's own auto-detection of "is an HTTP
+        # server running" (it checks PHX_SERVER/a Phoenix-internal flag that
+        # our release boot path never sets, even though the endpoint is
+        # unambiguously up by this point) -- we already know it should start,
+        # since this is only reached as part of web_children in the first
+        # place.
+        {Toodle.MCP.Server, transport: {:streamable_http, start: true}}
+      ] ++ desktop_children()
+  end
+
+  # Skipped in the test environment: the Ecto Sandbox only grants DB access
+  # to a test's own (allowed) processes, and this GenServer's first tick
+  # fires within a second of boot -- outside any test's allowance, which
+  # crashes it repeatedly and can exceed the supervisor's restart intensity,
+  # tearing down the whole app (Repo included) mid test run.
+  defp slack_poller_children do
+    if Application.get_env(:toodle, :slack_poller_enabled, true) do
+      [Toodle.Slack.Poller]
+    else
+      []
+    end
   end
 
   # A native window wrapping the (loopback-only) endpoint above — see

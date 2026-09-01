@@ -19,6 +19,10 @@ config :toodle, ToodleWeb.Endpoint,
   secret_key_base: "TA4IGTTaNdUdFOuJJUYfBRvK9Nn3FDfYMfDr5GqBAkUadkcRgBjPzESr1s+kzDEU",
   server: false
 
+# The Slack poller's background ticks can't get a Sandbox-allowed DB
+# connection in tests -- see Toodle.Application.slack_poller_children/0.
+config :toodle, :slack_poller_enabled, false
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 
@@ -35,3 +39,6 @@ config :phoenix,
 
 # Route Ollama requests through Req.Test instead of a real local server.
 config :toodle, Toodle.Llm.Ollama, plug: {Req.Test, Toodle.Llm.Ollama}
+
+# Route Slack requests through Req.Test instead of the real Slack API.
+config :toodle, Toodle.Slack.Client, plug: {Req.Test, Toodle.Slack.Client}

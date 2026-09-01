@@ -43,12 +43,14 @@ defmodule ToodleWeb.SettingsLive.Index do
         <section class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
           <h3 class="font-semibold">Slack</h3>
           <p class="text-sm text-base-content/70">
-            Checks public channels you're already in for messages mentioning you, about once a
-            minute, and drops each new one into the "Inbox" project — no bot to invite anywhere.
-            Ask Claude to triage the inbox to move items to the right project. Top-level channel
-            messages only for mentions (no thread replies, no private channels/DMs) — but react
-            with the emoji below to <em>any</em> message, including thread replies, to add it
-            manually.
+            Checks channels you're already in for messages mentioning you (every message counts
+            in a DM, if you turn those on below), and drops each new one into the "Inbox"
+            project — no bot to invite anywhere. Ask Claude to triage the inbox to move items to
+            the right project. Public channels only unless you turn on private channels below.
+            Top-level channel messages only for mentions (no thread replies) — but react with the
+            emoji below to <em>any</em> message, including thread replies, to add it manually
+            (with surrounding thread context included automatically, for a buried reply that
+            doesn't stand on its own).
           </p>
           <details class="text-sm text-base-content/70">
             <summary class="cursor-pointer font-medium text-base-content/90">
@@ -76,6 +78,30 @@ defmodule ToodleWeb.SettingsLive.Index do
                 <li>
                   reactions:read
                   <span class="font-sans opacity-70">— find messages you reacted to</span>
+                </li>
+                <li>
+                  groups:read
+                  <span class="font-sans opacity-70">
+                    — list private channels you're in (only if "Include private channels" below is on)
+                  </span>
+                </li>
+                <li>
+                  groups:history
+                  <span class="font-sans opacity-70">
+                    — read mentions in private channels (only if that's on)
+                  </span>
+                </li>
+                <li>
+                  im:read
+                  <span class="font-sans opacity-70">
+                    — list your DMs (only if "Include direct messages" below is on)
+                  </span>
+                </li>
+                <li>
+                  im:history
+                  <span class="font-sans opacity-70">
+                    — read messages in your DMs (only if that's on)
+                  </span>
                 </li>
               </ul>
               <p>
@@ -130,12 +156,71 @@ defmodule ToodleWeb.SettingsLive.Index do
                 class="input input-bordered w-full"
               />
             </label>
+            <label class="fieldset">
+              <span class="label mb-1">Poll interval (seconds, minimum 15)</span>
+              <input
+                type="number"
+                name="poll_interval_seconds"
+                value={@slack_poll_interval_seconds}
+                min="15"
+                placeholder="60"
+                class="input input-bordered w-full"
+              />
+            </label>
             <button type="submit" class="btn btn-primary">Save</button>
           </.form>
 
-          <button type="button" phx-click="poll_now" class="btn btn-sm btn-soft">
-            <.icon name="hero-arrow-path" class="size-4" /> Check now
-          </button>
+          <div class="space-y-1.5">
+            <label class="label cursor-pointer w-fit gap-2">
+              <input
+                type="checkbox"
+                class="toggle toggle-primary toggle-sm"
+                checked={@slack_include_private?}
+                phx-click="toggle_slack_include_private"
+              />
+              <span>
+                Include private channels — {if @slack_include_private?,
+                  do: "Enabled",
+                  else: "Disabled"}
+              </span>
+            </label>
+            <label class="label cursor-pointer w-fit gap-2">
+              <input
+                type="checkbox"
+                class="toggle toggle-primary toggle-sm"
+                checked={@slack_include_dms?}
+                phx-click="toggle_slack_include_dms"
+              />
+              <span>
+                Include direct messages — {if @slack_include_dms?, do: "Enabled", else: "Disabled"}
+              </span>
+            </label>
+          </div>
+
+          <div class="flex gap-2">
+            <button type="button" phx-click="poll_now" class="btn btn-sm btn-soft">
+              <.icon name="hero-arrow-path" class="size-4" /> Check now
+            </button>
+            <button type="button" phx-click="refresh_slack_channels" class="btn btn-sm btn-soft">
+              <.icon name="hero-arrow-path" class="size-4" /> Refresh channel list
+            </button>
+          </div>
+
+          <div :if={@slack_configured?} class="text-sm space-y-1">
+            <p class="font-medium text-base-content/90">Listening to</p>
+            <p :if={@slack_channels == :error} class="text-error">
+              Couldn't load the channel list — check your token and scopes.
+            </p>
+            <p :if={@slack_channels == []} class="text-base-content/60">
+              No channels yet — join one in Slack, or turn on private channels/DMs above if the
+              ones you want aren't public channels.
+            </p>
+            <ul :if={is_list(@slack_channels) and @slack_channels != []} class="flex flex-wrap gap-1">
+              <li :for={channel <- @slack_channels} class="badge badge-ghost badge-sm font-mono">
+                {channel_label(channel)}
+              </li>
+            </ul>
+          </div>
         </section>
 
         <section class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
@@ -370,6 +455,10 @@ defmodule ToodleWeb.SettingsLive.Index do
       |> assign(:linear_configured?, Linear.api_key_configured?())
       |> assign(:slack_configured?, Slack.configured?())
       |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
+      |> assign(:slack_include_private?, Slack.include_private_channels?())
+      |> assign(:slack_include_dms?, Slack.include_dms?())
+      |> assign(:slack_poll_interval_seconds, Slack.poll_interval_seconds())
+      |> assign(:slack_channels, fetch_slack_channels(Slack.configured?()))
       |> assign(:inbox_cleanup_enabled?, enabled?)
       |> assign(:inbox_cleanup_auto_project?, auto_project?)
       |> assign(:inbox_cleanup_auto_metadata?, auto_metadata?)
@@ -401,6 +490,19 @@ defmodule ToodleWeb.SettingsLive.Index do
   defp title_and_error({:error, reason}, fallback), do: {fallback, reason}
   defp title_and_error(:disabled, fallback), do: {fallback, nil}
 
+  defp fetch_slack_channels(false), do: []
+
+  defp fetch_slack_channels(true) do
+    case Slack.list_channels() do
+      {:ok, channels} -> channels
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp channel_label(%{"is_im" => true} = channel), do: "DM: #{channel["user"]}"
+  defp channel_label(%{"is_private" => true} = channel), do: "🔒#{channel["name"]}"
+  defp channel_label(channel), do: "##{channel["name"]}"
+
   defp short_sha(nil), do: nil
   defp short_sha(sha), do: String.slice(sha, 0, 7)
 
@@ -427,7 +529,12 @@ defmodule ToodleWeb.SettingsLive.Index do
 
   def handle_event(
         "save_slack_token",
-        %{"token" => token, "user_id" => user_id, "reaction_emoji" => reaction_emoji},
+        %{
+          "token" => token,
+          "user_id" => user_id,
+          "reaction_emoji" => reaction_emoji,
+          "poll_interval_seconds" => poll_interval_seconds
+        },
         socket
       ) do
     cond do
@@ -442,12 +549,46 @@ defmodule ToodleWeb.SettingsLive.Index do
         Slack.put_user_id(user_id)
         if reaction_emoji != "", do: Slack.put_reaction_emoji(reaction_emoji)
 
+        case Integer.parse(poll_interval_seconds) do
+          {seconds, _rest} -> Slack.put_poll_interval_seconds(seconds)
+          :error -> :ok
+        end
+
+        configured? = Slack.configured?()
+
         {:noreply,
          socket
-         |> assign(:slack_configured?, Slack.configured?())
+         |> assign(:slack_configured?, configured?)
          |> assign(:slack_reaction_emoji, Slack.reaction_emoji())
+         |> assign(:slack_poll_interval_seconds, Slack.poll_interval_seconds())
+         |> assign(:slack_channels, fetch_slack_channels(configured?))
          |> put_flash(:info, "Slack settings saved")}
     end
+  end
+
+  def handle_event("toggle_slack_include_private", _params, socket) do
+    include? = !socket.assigns.slack_include_private?
+    Slack.put_include_private_channels(include?)
+
+    {:noreply,
+     socket
+     |> assign(:slack_include_private?, include?)
+     |> assign(:slack_channels, fetch_slack_channels(socket.assigns.slack_configured?))}
+  end
+
+  def handle_event("toggle_slack_include_dms", _params, socket) do
+    include? = !socket.assigns.slack_include_dms?
+    Slack.put_include_dms(include?)
+
+    {:noreply,
+     socket
+     |> assign(:slack_include_dms?, include?)
+     |> assign(:slack_channels, fetch_slack_channels(socket.assigns.slack_configured?))}
+  end
+
+  def handle_event("refresh_slack_channels", _params, socket) do
+    {:noreply,
+     assign(socket, :slack_channels, fetch_slack_channels(socket.assigns.slack_configured?))}
   end
 
   def handle_event("toggle_board_show_archived", _params, socket) do
@@ -515,9 +656,18 @@ defmodule ToodleWeb.SettingsLive.Index do
 
   def handle_event("poll_now", _params, socket) do
     case Slack.poll() do
-      {:ok, %{channels_checked: channels, tasks_created: created}} ->
+      {:ok, %{channels_checked: channels, tasks_created: created, reaction_error: nil}} ->
         {:noreply,
          put_flash(socket, :info, "Checked #{channels} channel(s), created #{created} task(s)")}
+
+      {:ok, %{channels_checked: channels, tasks_created: created, reaction_error: reason}} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Checked #{channels} channel(s), created #{created} task(s) — " <>
+             "but couldn't check reactions: #{reason}"
+         )}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Slack check failed: #{reason}")}
