@@ -207,7 +207,17 @@ defmodule ToodleWeb.SettingsLive.Index do
           </div>
 
           <div :if={@slack_configured?} class="text-sm space-y-1">
-            <p class="font-medium text-base-content/90">Listening to</p>
+            <div class="flex items-center justify-between gap-2">
+              <p class="font-medium text-base-content/90">Listening to</p>
+              <button
+                :if={is_list(@slack_channels) and @slack_channels != []}
+                type="button"
+                phx-click="open_slack_channels_modal"
+                class="btn btn-xs btn-ghost"
+              >
+                Manage
+              </button>
+            </div>
             <p :if={@slack_channels == :error} class="text-error">
               Couldn't load the channel list — check your token and scopes.
             </p>
@@ -216,10 +226,63 @@ defmodule ToodleWeb.SettingsLive.Index do
               ones you want aren't public channels.
             </p>
             <ul :if={is_list(@slack_channels) and @slack_channels != []} class="flex flex-wrap gap-1">
-              <li :for={channel <- @slack_channels} class="badge badge-ghost badge-sm font-mono">
+              <li
+                :for={channel <- @slack_channels}
+                class={[
+                  "badge badge-sm font-mono",
+                  if(MapSet.member?(@slack_excluded_ids, channel["id"]),
+                    do: "badge-ghost opacity-40 line-through",
+                    else: "badge-ghost"
+                  )
+                ]}
+              >
                 {channel_label(channel)}
               </li>
             </ul>
+          </div>
+
+          <div
+            :if={@show_slack_channels_modal? and is_list(@slack_channels)}
+            id="slack-channels-modal"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            phx-click="close_slack_channels_modal"
+            phx-window-keydown="close_slack_channels_modal"
+            phx-key="Escape"
+          >
+            <div
+              class="w-full max-w-md rounded-2xl bg-base-100 p-6 shadow-lg max-h-[80vh] overflow-y-auto space-y-3"
+              onclick="event.stopPropagation()"
+            >
+              <div class="flex items-center justify-between">
+                <h4 class="font-semibold">Manage channels</h4>
+                <button
+                  type="button"
+                  phx-click="close_slack_channels_modal"
+                  class="btn btn-ghost btn-xs btn-circle"
+                  aria-label="Close"
+                >
+                  <.icon name="hero-x-mark" class="size-4" />
+                </button>
+              </div>
+              <p class="text-sm text-base-content/70">
+                Turn a channel off to stop checking it for mentions, without leaving it in Slack.
+              </p>
+              <div class="space-y-0.5">
+                <div
+                  :for={channel <- @slack_channels}
+                  class="flex items-center justify-between gap-2 py-1.5 border-b border-base-200 last:border-0"
+                >
+                  <span class="font-mono text-sm truncate">{channel_label(channel)}</span>
+                  <input
+                    type="checkbox"
+                    class="toggle toggle-primary toggle-sm shrink-0"
+                    checked={!MapSet.member?(@slack_excluded_ids, channel["id"])}
+                    phx-click="toggle_channel_excluded"
+                    phx-value-id={channel["id"]}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -459,6 +522,8 @@ defmodule ToodleWeb.SettingsLive.Index do
       |> assign(:slack_include_dms?, Slack.include_dms?())
       |> assign(:slack_poll_interval_seconds, Slack.poll_interval_seconds())
       |> assign(:slack_channels, fetch_slack_channels(Slack.configured?()))
+      |> assign(:slack_excluded_ids, Slack.excluded_channel_ids())
+      |> assign(:show_slack_channels_modal?, false)
       |> assign(:inbox_cleanup_enabled?, enabled?)
       |> assign(:inbox_cleanup_auto_project?, auto_project?)
       |> assign(:inbox_cleanup_auto_metadata?, auto_metadata?)
@@ -589,6 +654,19 @@ defmodule ToodleWeb.SettingsLive.Index do
   def handle_event("refresh_slack_channels", _params, socket) do
     {:noreply,
      assign(socket, :slack_channels, fetch_slack_channels(socket.assigns.slack_configured?))}
+  end
+
+  def handle_event("open_slack_channels_modal", _params, socket) do
+    {:noreply, assign(socket, :show_slack_channels_modal?, true)}
+  end
+
+  def handle_event("close_slack_channels_modal", _params, socket) do
+    {:noreply, assign(socket, :show_slack_channels_modal?, false)}
+  end
+
+  def handle_event("toggle_channel_excluded", %{"id" => channel_id}, socket) do
+    Slack.toggle_channel_excluded(channel_id)
+    {:noreply, assign(socket, :slack_excluded_ids, Slack.excluded_channel_ids())}
   end
 
   def handle_event("toggle_board_show_archived", _params, socket) do

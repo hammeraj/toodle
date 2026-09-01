@@ -44,6 +44,43 @@ defmodule Toodle.SlackTest do
     assert Slack.poll_interval_seconds() == 15
   end
 
+  test "channel_excluded?/1 defaults to false and toggle_channel_excluded/1 flips it back and forth" do
+    refute Slack.channel_excluded?("C1")
+
+    Slack.toggle_channel_excluded("C1")
+    assert Slack.channel_excluded?("C1")
+    refute Slack.channel_excluded?("C2")
+
+    Slack.toggle_channel_excluded("C1")
+    refute Slack.channel_excluded?("C1")
+  end
+
+  test "poll/0 skips a channel that's been excluded, but still checks the others" do
+    Slack.toggle_channel_excluded("C1")
+
+    Req.Test.stub(Client, fn conn ->
+      case conn.request_path do
+        "/api/conversations.list" ->
+          Req.Test.json(conn, %{
+            "ok" => true,
+            "channels" => [
+              %{"id" => "C1", "name" => "excluded", "is_member" => true},
+              %{"id" => "C2", "name" => "included", "is_member" => true}
+            ]
+          })
+
+        "/api/conversations.history" ->
+          assert conn.query_params["channel"] == "C2"
+          Req.Test.json(conn, %{"ok" => true, "messages" => []})
+
+        "/api/reactions.list" ->
+          Req.Test.json(conn, %{"ok" => true, "items" => []})
+      end
+    end)
+
+    assert {:ok, %{channels_checked: 1}} = Slack.poll()
+  end
+
   test "poll/0 requests private channels once that setting is on" do
     Slack.put_include_private_channels(true)
 
