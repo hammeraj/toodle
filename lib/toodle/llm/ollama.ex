@@ -9,6 +9,8 @@ defmodule Toodle.Llm.Ollama do
 
   @default_host "http://localhost:11434"
   @default_model "qwen2.5:1.5b"
+  @startup_race_retries 15
+  @startup_race_retry_delay_ms 300
 
   require Logger
 
@@ -77,8 +79,21 @@ defmodule Toodle.Llm.Ollama do
 
   Downloading a model for real can take a while, so callers that don't
   want to block should wrap this in a `Task`.
+
+  For the bundled server specifically, spawning the subprocess and it
+  actually binding its port aren't the same moment -- a caller racing to
+  pull right after app launch (Settings mounting, for instance) can hit a
+  plain connection-refused before it's had a chance to come up. Retries
+  through that specific case rather than failing fast, bounded at a few
+  seconds; a user's own separately-installed Ollama being genuinely down
+  still fails immediately, same as every other call here.
   """
   def ensure_model(model \\ @default_model) do
+    retries = if OllamaServer.bundled?(), do: @startup_race_retries, else: 0
+    ensure_model(model, retries)
+  end
+
+  defp ensure_model(model, retries_left) do
     request(receive_timeout: :infinity)
     |> Req.post(url: "/api/pull", json: %{model: model, stream: false})
     |> case do
@@ -89,6 +104,10 @@ defmodule Toodle.Llm.Ollama do
         message = http_error_message(status, body)
         log_error("pull of #{model} #{message}")
         {:error, message}
+
+      {:error, %Req.TransportError{reason: :econnrefused}} when retries_left > 0 ->
+        Process.sleep(@startup_race_retry_delay_ms)
+        ensure_model(model, retries_left - 1)
 
       {:error, exception} ->
         log_error("pull of #{model} failed: #{Exception.message(exception)}")
