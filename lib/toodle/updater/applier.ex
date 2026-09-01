@@ -21,6 +21,22 @@ defmodule Toodle.Updater.Applier do
 
   require Logger
 
+  @doc """
+  Removes the `.old` backup `apply_macos/1` leaves behind, if this is
+  macOS and one exists. Safe to call unconditionally on every boot: by the
+  time this code is running, the *current* install already launched
+  successfully, so a backup from whatever update produced it has served
+  its purpose (it existed only so a failed relaunch after that update had
+  something to fall back to). Windows never creates one (`apply_windows/1`
+  reinstalls in place), so this is a no-op there.
+  """
+  def cleanup_old_backup do
+    case :os.type() do
+      {:unix, :darwin} -> File.rm_rf(current_app_bundle() <> ".old")
+      _other -> :ok
+    end
+  end
+
   @doc "Applies `installer_path` (the downloaded .exe/.dmg) and quits this app."
   def apply(installer_path) do
     case :os.type() do

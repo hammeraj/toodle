@@ -16,6 +16,23 @@ defmodule Toodle.Llm.OllamaServerTest do
     refute String.contains?(OllamaServer.models_dir(), Application.app_dir(:toodle, "priv"))
   end
 
+  test "an exited port schedules a bounded number of restart attempts, then gives up" do
+    state = %{port: :fake_port, bin: "/bin/true", restart_count: 0}
+
+    state =
+      Enum.reduce(1..5, state, fn expected_count, state ->
+        assert {:noreply, state} =
+                 OllamaServer.handle_info({:fake_port, {:exit_status, 1}}, state)
+
+        assert state.restart_count == expected_count
+        state
+      end)
+
+    # One crash beyond the cap stops incrementing (and so stops scheduling
+    # further restarts) rather than retrying forever.
+    assert {:noreply, ^state} = OllamaServer.handle_info({:fake_port, {:exit_status, 1}}, state)
+  end
+
   test "terminate/2 waits for the killed subprocess to actually exit before returning" do
     port = Port.open({:spawn, "sleep 30"}, [:binary, :exit_status])
     {:os_pid, os_pid} = Port.info(port, :os_pid)

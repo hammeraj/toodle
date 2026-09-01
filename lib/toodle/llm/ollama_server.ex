@@ -51,9 +51,28 @@ defmodule Toodle.Llm.OllamaServer do
       bin ->
         Logger.info("Starting bundled Ollama server from #{bin}")
         port = open_port(bin)
-        await_ready()
-        {:ok, %{port: port}}
+        {:ok, %{port: port, bin: bin, restart_count: 0}, {:continue, :await_ready}}
     end
+  end
+
+  # Runs after init/1 returns, rather than blocking init/1 itself -- this
+  # GenServer is started as one of Toodle.Application's children *before*
+  # Desktop.Window (see web_children/0), and a Supervisor starts children
+  # sequentially, each waiting for the previous one's init to return. An
+  # earlier version blocked here for up to ~5s waiting for the port to
+  # accept connections, which meant the app's whole GUI window didn't
+  # appear until that finished on *every* launch -- easily long enough for
+  # heart's own liveness expectations to get confused and it isn't even
+  # the right fix: nothing actually calls through this GenServer before
+  # talking to Ollama (Toodle.Llm.Ollama.host/0 is a plain function, not a
+  # message to this process), so blocking here never protected the actual
+  # race anyway. This is now just diagnostic logging; the real fix for a
+  # caller racing the subprocess's startup is retrying the call itself
+  # (see Ollama.ensure_model/1).
+  @impl true
+  def handle_continue(:await_ready, state) do
+    await_ready()
+    {:noreply, state}
   end
 
   @impl true
@@ -64,7 +83,19 @@ defmodule Toodle.Llm.OllamaServer do
 
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.warning("Bundled ollama server exited with status #{status}")
-    {:noreply, state}
+    schedule_restart(state)
+  end
+
+  # Fires after schedule_restart/1's delay. Relaunching inline in the
+  # :exit_status handler above would tight-loop a binary that dies the
+  # instant it's spawned (quarantine/Gatekeeper block, a genuinely corrupt
+  # download, ...); this gives each attempt a beat to actually fail instead
+  # of burning CPU respawning it hundreds of times a second.
+  def handle_info(:restart_bundled_ollama, %{bin: bin} = state) do
+    Logger.info("Restarting bundled Ollama server from #{bin}")
+    port = open_port(bin)
+    await_ready()
+    {:noreply, %{state | port: port}}
   end
 
   @impl true
@@ -104,6 +135,30 @@ defmodule Toodle.Llm.OllamaServer do
     end
   end
 
+  # A one-shot launch failure shouldn't leave Ollama dead for the rest of
+  # the app's session -- the only way anyone finds out is by noticing every
+  # subsequent call quietly falls back, same as the exact bug this restart
+  # logic exists to stop recurring. Capped rather than retried forever: a
+  # binary that's persistently broken (corrupt download, blocked outright)
+  # would otherwise crash-loop indefinitely: once for the app's whole
+  # lifetime is enough given how rare an actual crash here is expected to
+  # be, not reset on a successful stretch of uptime.
+  @max_restart_attempts 5
+  @restart_delay_ms 2_000
+
+  defp schedule_restart(%{restart_count: count} = state) when count < @max_restart_attempts do
+    Process.send_after(self(), :restart_bundled_ollama, @restart_delay_ms)
+    {:noreply, %{state | restart_count: count + 1}}
+  end
+
+  defp schedule_restart(state) do
+    Logger.error(
+      "Bundled Ollama server crashed #{@max_restart_attempts} times -- giving up on restarting it for this session"
+    )
+
+    {:noreply, state}
+  end
+
   defp open_port(bin) do
     File.mkdir_p!(models_dir())
 
@@ -125,17 +180,10 @@ defmodule Toodle.Llm.OllamaServer do
   @ready_check_interval_ms 100
   @ready_check_attempts 50
 
-  # Spawning the subprocess and it actually binding @port aren't the same
-  # moment -- without this, any caller that races to talk to it right after
-  # app launch (Settings mounting and immediately checking/pulling the
-  # model, for instance) can hit a plain connection-refused before it's had
-  # a chance to come up, which looks identical to "Ollama isn't there" even
-  # though it's about to be. Blocks this GenServer's init/1 (and so the
-  # supervision tree's startup) rather than returning early, so nothing
-  # downstream can observe `bundled?/0` as true before the server it points
-  # at is actually reachable. Bounded at ~5s and falls through regardless
-  # of outcome -- a genuinely broken/quarantined binary shouldn't hang app
-  # startup, and every caller already tolerates `{:error, _}` from here on.
+  # Purely diagnostic (see handle_continue/2 above for why this doesn't
+  # block anything): logs how the startup actually went, so a launch-time
+  # failure shows up here instead of only surfacing later as an unexplained
+  # connection-refused from whatever happened to call Ollama first.
   defp await_ready(attempts_left \\ @ready_check_attempts)
 
   defp await_ready(0) do

@@ -7,6 +7,8 @@ defmodule Toodle.Application do
 
   @impl true
   def start(_type, _args) do
+    cleanup_old_update_backup()
+
     children =
       [
         ToodleWeb.Telemetry,
@@ -19,6 +21,15 @@ defmodule Toodle.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Toodle.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  # Best-effort and fire-and-forget: this is just tidying up a leftover
+  # backup directory from Toodle.Updater.Applier, never something worth
+  # failing app boot over.
+  defp cleanup_old_update_backup do
+    Task.start(fn ->
+      Toodle.Updater.Applier.cleanup_old_backup()
+    end)
   end
 
   defp web_children do
