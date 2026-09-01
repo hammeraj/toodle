@@ -130,4 +130,92 @@ defmodule ToodleWeb.SettingsLive.SlackChannelsTest do
 
     assert Slack.poll_interval_seconds() == 15
   end
+
+  describe "manage channels modal" do
+    setup do
+      Req.Test.stub(Client, fn conn ->
+        Req.Test.json(conn, %{
+          "ok" => true,
+          "channels" => [
+            %{"id" => "C1", "name" => "general", "is_member" => true},
+            %{"id" => "C2", "name" => "eng", "is_member" => true}
+          ]
+        })
+      end)
+
+      :ok
+    end
+
+    test "is closed by default, and the Manage button opens it with every channel listed" do
+      {:ok, view, html} = live(build_conn(), ~p"/settings")
+
+      refute html =~ "Manage channels"
+      assert has_element?(view, "button", "Manage")
+
+      html = render_click(view, "open_slack_channels_modal")
+
+      assert html =~ "Manage channels"
+      assert has_element?(view, "#slack-channels-modal", "#general")
+      assert has_element?(view, "#slack-channels-modal", "#eng")
+    end
+
+    test "toggling a channel off in the modal excludes it from polling and greys it out in the summary" do
+      {:ok, view, _html} = live(build_conn(), ~p"/settings")
+      render_click(view, "open_slack_channels_modal")
+
+      refute Slack.channel_excluded?("C1")
+
+      html = render_click(view, "toggle_channel_excluded", %{"id" => "C1"})
+
+      assert Slack.channel_excluded?("C1")
+      assert html =~ "line-through"
+
+      # Toggling back on re-includes it.
+      html = render_click(view, "toggle_channel_excluded", %{"id" => "C1"})
+      refute Slack.channel_excluded?("C1")
+      refute html =~ "line-through"
+    end
+
+    test "close_slack_channels_modal hides the modal again" do
+      {:ok, view, _html} = live(build_conn(), ~p"/settings")
+      render_click(view, "open_slack_channels_modal")
+      assert has_element?(view, "#slack-channels-modal")
+
+      render_click(view, "close_slack_channels_modal")
+      refute has_element?(view, "#slack-channels-modal")
+    end
+
+    test "an excluded channel is actually skipped by the next poll" do
+      Slack.toggle_channel_excluded("C2")
+
+      {:ok, view, _html} = live(build_conn(), ~p"/settings")
+      render_click(view, "open_slack_channels_modal")
+
+      html = render(view)
+      assert html =~ "line-through"
+
+      Req.Test.stub(Client, fn conn ->
+        case conn.request_path do
+          "/api/conversations.list" ->
+            Req.Test.json(conn, %{
+              "ok" => true,
+              "channels" => [
+                %{"id" => "C1", "name" => "general", "is_member" => true},
+                %{"id" => "C2", "name" => "eng", "is_member" => true}
+              ]
+            })
+
+          "/api/conversations.history" ->
+            assert conn.query_params["channel"] == "C1"
+            Req.Test.json(conn, %{"ok" => true, "messages" => []})
+
+          "/api/reactions.list" ->
+            Req.Test.json(conn, %{"ok" => true, "items" => []})
+        end
+      end)
+
+      html = render_click(view, "poll_now")
+      assert html =~ "Checked 1 channel(s)"
+    end
+  end
 end

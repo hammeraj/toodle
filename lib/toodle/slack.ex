@@ -11,7 +11,8 @@ defmodule Toodle.Slack do
   default; private channels opt in via `include_private_channels?/0`
   (`groups:read` / `groups:history`), and DMs opt in via
   `include_dms?/0` (`im:read` / `im:history`) — each on top of the
-  public-channel scopes.
+  public-channel scopes. Individual channels can be excluded from polling
+  without leaving them in Slack — see `toggle_channel_excluded/1`.
 
   The mention scan is top-level-channel-messages-only (Slack's channel
   history API doesn't surface thread replies at all, and there's no cheap
@@ -37,6 +38,7 @@ defmodule Toodle.Slack do
   @token_key "slack_user_token"
   @user_id_key "slack_user_id"
   @cursors_key "slack_channel_cursors"
+  @excluded_channels_key "slack_excluded_channel_ids"
   @reaction_emoji_key "slack_reaction_emoji"
   @include_private_key "slack_include_private_channels"
   @include_dms_key "slack_include_dms"
@@ -85,6 +87,30 @@ defmodule Toodle.Slack do
     Settings.put(@poll_interval_key, to_string(max(seconds, @min_poll_interval_seconds)))
   end
 
+  @doc "The set of channel IDs excluded from polling, even though you're a member."
+  def excluded_channel_ids do
+    case Settings.get(@excluded_channels_key) do
+      nil -> MapSet.new()
+      json -> json |> Jason.decode!() |> MapSet.new()
+    end
+  end
+
+  def channel_excluded?(channel_id), do: MapSet.member?(excluded_channel_ids(), channel_id)
+
+  @doc "Flips whether `channel_id` is excluded from polling."
+  def toggle_channel_excluded(channel_id) when is_binary(channel_id) do
+    excluded = excluded_channel_ids()
+
+    updated =
+      if MapSet.member?(excluded, channel_id) do
+        MapSet.delete(excluded, channel_id)
+      else
+        MapSet.put(excluded, channel_id)
+      end
+
+    Settings.put(@excluded_channels_key, updated |> MapSet.to_list() |> Jason.encode!())
+  end
+
   @doc "Runs one poll cycle: check for new mentions and new reactions, create Inbox tasks for them."
   def poll do
     if configured?() do
@@ -104,8 +130,9 @@ defmodule Toodle.Slack do
   end
 
   defp do_poll(token, user_id) do
-    with {:ok, channels} <-
+    with {:ok, all_channels} <-
            Client.list_my_channels(token, include_private_channels?(), include_dms?()) do
+      channels = Enum.reject(all_channels, &channel_excluded?(&1["id"]))
       cursors = get_cursors()
       results = Enum.map(channels, &poll_channel(token, user_id, &1, Map.get(cursors, &1["id"])))
       mention_created = results |> Enum.map(&elem(&1, 1)) |> Enum.sum()
